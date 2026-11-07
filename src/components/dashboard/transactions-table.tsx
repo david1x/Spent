@@ -9,6 +9,7 @@ import {
   Check,
   Eye,
   EyeOff,
+  History,
   Minus,
   MoreHorizontal,
   Tag,
@@ -29,6 +30,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/formatters";
+import { normalizeCurrency } from "@/lib/currency";
 import {
   approveTransactionCategory,
   getCategories,
@@ -48,6 +50,7 @@ import {
   TABLE_HEAD_CLASS,
 } from "@/components/transactions/sortable-table-head";
 import { INCOME_INK } from "@/components/transactions/summary-strip";
+import { PaymentHistorySheet } from "@/components/transactions/payment-history-sheet";
 import type { SortOrder, TransactionSortField } from "@/lib/transaction-sort";
 import { cn } from "@/lib/utils";
 import type {
@@ -77,6 +80,8 @@ interface TransactionsTableProps {
   onSortChange: (field: TransactionSortField) => void;
   /** Selection is dropped whenever this changes (new page, filters or month). */
   selectionKey: string;
+  /** "See all" in the history sheet: list this merchant across all time. */
+  onShowMerchantEverywhere?: (description: string) => void;
 }
 
 export const TRANSACTIONS_PAGE_SIZE = 50;
@@ -146,6 +151,7 @@ export function TransactionsTable({
   sortOrder,
   onSortChange,
   selectionKey,
+  onShowMerchantEverywhere,
 }: TransactionsTableProps) {
   const t = useTranslations("transactions");
   const tCat = useTranslations("categoriesSeeded");
@@ -153,6 +159,7 @@ export function TransactionsTable({
   const queryClient = useQueryClient();
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [historyId, setHistoryId] = useState<number | null>(null);
   const [selection, setSelection] = useState<{ key: string; ids: number[] }>({
     key: selectionKey,
     ids: [],
@@ -217,6 +224,7 @@ export function TransactionsTable({
   };
 
   const actions: RowActions = {
+    openHistory: (txn) => setHistoryId(txn.id),
     changeCategory: (txn, categoryId) =>
       void runRowAction(txn.id, () => updateTransactionCategory(txn.id, categoryId)),
     approve: (txn) =>
@@ -509,11 +517,17 @@ export function TransactionsTable({
           ) : null}
         </div>
       )}
+      <PaymentHistorySheet
+        transactionId={historyId}
+        onClose={() => setHistoryId(null)}
+        onShowAll={onShowMerchantEverywhere}
+      />
     </section>
   );
 }
 
 interface RowActions {
+  openHistory: (txn: TransactionWithCategory) => void;
   changeCategory: (txn: TransactionWithCategory, categoryId: number) => void;
   approve: (txn: TransactionWithCategory) => void;
   changeKind: (txn: TransactionWithCategory, kind: Kind) => void;
@@ -575,7 +589,14 @@ function DesktopRow({
         </td>
       ) : null}
       <td className="max-w-0 px-3.5 py-2.5 align-middle">
-        <MerchantText txn={txn} t={t} muted={reason !== null} />
+        <button
+          type="button"
+          onClick={() => actions.openHistory(txn)}
+          className="-mx-1.5 -my-1 block w-[calc(100%+0.75rem)] rounded-md px-1.5 py-1 text-start outline-none hover:bg-card focus-visible:ring-3 focus-visible:ring-ring/50"
+          title={t("historyOpen")}
+        >
+          <MerchantText txn={txn} t={t} muted={reason !== null} />
+        </button>
       </td>
       <td className="px-3.5 py-2.5 align-middle">
         <CategoryMenu
@@ -678,14 +699,16 @@ function MobileRow({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
-          <div
+          <button
+            type="button"
+            onClick={() => actions.openHistory(txn)}
             className={cn(
-              "min-w-0 truncate text-sm font-medium",
+              "min-w-0 truncate rounded-sm text-start text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
               reason !== null && "text-muted-foreground"
             )}
           >
             <bdi>{txn.description}</bdi>
-          </div>
+          </button>
           <AmountText txn={txn} muted={reason !== null} locale={locale} compact />
         </div>
         <div className="mt-1.5 flex min-w-0 items-center gap-2">
@@ -783,10 +806,12 @@ function AmountText({
   locale: Locale;
   compact?: boolean;
 }) {
+  const t = useTranslations("transactions");
   const isIncome = txn.chargedAmount > 0;
+  const estimated = txn.chargedEstimated === true;
   const foreign =
     txn.originalCurrency &&
-    txn.originalCurrency !== "ILS" &&
+    normalizeCurrency(txn.originalCurrency) !== "ILS" &&
     txn.originalAmount !== txn.chargedAmount
       ? formatCurrency(txn.originalAmount, txn.originalCurrency, locale)
       : null;
@@ -799,8 +824,10 @@ function AmountText({
           muted ? "font-normal text-muted-foreground" : "font-medium text-foreground"
         )}
         style={!muted && isIncome ? { color: INCOME_INK } : undefined}
+        title={estimated ? t("amountEstimatedHint") : undefined}
       >
         <bdi>
+          {estimated ? "≈ " : ""}
           {isIncome ? "+" : ""}
           {formatCurrency(txn.chargedAmount, "ILS", locale)}
         </bdi>
@@ -973,6 +1000,11 @@ function RowMoreMenu({
         <MoreHorizontal className="h-4 w-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuItem onClick={() => actions.openHistory(txn)}>
+          <History className="h-3.5 w-3.5" />
+          {t("historyOpen")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         {includeCategory && menu.categories.length > 0 ? (
           <>
             <DropdownMenuSub>

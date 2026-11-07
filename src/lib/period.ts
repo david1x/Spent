@@ -80,3 +80,39 @@ export function formatPeriodLabel(period: Period, locale?: Locale): string {
 export function periodMonthName(period: Period, locale?: Locale): string {
   return period.start.toLocaleDateString(bcp47(locale), { month: "long" });
 }
+
+/** `count` whole periods ending with `last`, as one span. */
+export function periodsEndingWith(last: Period, count: number, startDay: number): Period {
+  const first = shiftPeriod(last, -(Math.max(1, count) - 1), startDay);
+  return { start: first.start, end: last.end };
+}
+
+/** Parses a "YYYY-MM-DD" day as local midnight, or null when malformed. */
+export function parseISODay(value: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Label for any span of days: "Sep – Nov 2026" when it covers whole calendar
+ * months, otherwise "10 Sep – 9 Dec" (years added when they differ from the
+ * current one or from each other).
+ */
+export function formatRangeLabel(start: Date, end: Date, locale?: Locale): string {
+  const bcp = bcp47(locale);
+  const dayAfterEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+  const sameYear = start.getFullYear() === end.getFullYear();
+  if (start.getDate() === 1 && dayAfterEnd.getDate() === 1) {
+    if (sameYear && start.getMonth() === end.getMonth()) {
+      return start.toLocaleDateString(bcp, { month: "long", year: "numeric" });
+    }
+    const from = start.toLocaleDateString(bcp, sameYear ? { month: "short" } : { month: "short", year: "numeric" });
+    return `${from} – ${end.toLocaleDateString(bcp, { month: "short", year: "numeric" })}`;
+  }
+  const showYear = !sameYear || end.getFullYear() !== new Date().getFullYear();
+  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+  const fmt = (d: Date) => d.toLocaleDateString(bcp, showYear ? { ...opts, year: "numeric" } : opts);
+  return start.getTime() === end.getTime() ? fmt(start) : `${fmt(start)} – ${fmt(end)}`;
+}

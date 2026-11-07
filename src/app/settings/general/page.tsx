@@ -17,7 +17,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { SectionShell, SettingCard } from "@/components/settings/section-shell";
 import { WorkspaceNameCard } from "@/components/settings/workspace-controls";
-import { getSettings, getSummary, updateSettings } from "@/lib/api";
+import { RefreshCw } from "lucide-react";
+import { getFxStatus, getSettings, getSummary, updateFxRates, updateSettings } from "@/lib/api";
 import { formatCurrency } from "@/lib/formatters";
 import type { Locale } from "@/i18n/routing";
 
@@ -68,6 +69,7 @@ export default function GeneralSettingsPage() {
             initialEnabled={settings.autoSyncEnabled}
             initialTime={settings.autoSyncTime}
           />
+          <ExchangeRatesCard />
         </>
       ) : (
         <SettingCard>
@@ -349,4 +351,95 @@ function AutoSyncCard({
       </div>
     </SettingCard>
   );
+}
+
+/** Rates older than this get a nudge to update. */
+const FX_STALE_DAYS = 7;
+
+/**
+ * Local Bank of Israel rates behind the shekel estimates for foreign
+ * purchases a card bills in their own currency.
+ */
+function ExchangeRatesCard() {
+  const t = useTranslations("settings.general");
+  const locale = useLocale() as Locale;
+  const queryClient = useQueryClient();
+  const status = useQuery({ queryKey: ["fx-status"], queryFn: getFxStatus });
+
+  const update = useMutation({
+    mutationFn: updateFxRates,
+    onSuccess: (result) => {
+      queryClient.setQueryData(["fx-status"], result.status);
+      if (result.changed > 0) {
+        for (const key of ["transactions", "summary", "transactions-summary", "home", "transaction-history", "category-detail"]) {
+          queryClient.invalidateQueries({ queryKey: [key] });
+        }
+      }
+      toast.success(
+        result.latestDate
+          ? t("fxUpdated", { date: formatDay(result.latestDate, locale), count: result.changed })
+          : t("fxUpToDate")
+      );
+    },
+    onError: () => toast.error(t("fxUpdateFailed")),
+  });
+
+  const latest = status.data?.latestDate ?? null;
+  const ageDays = latest
+    ? Math.floor((Date.parse(todayLocalISO()) - Date.parse(latest)) / 86_400_000)
+    : null;
+  const stale = ageDays !== null && ageDays > FX_STALE_DAYS;
+
+  return (
+    <SettingCard title={t("fxTitle")} description={t("fxDescription")}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 space-y-0.5 text-sm">
+          {status.data ? (
+            <>
+              <div className="font-medium">
+                {latest
+                  ? t("fxThrough", { date: formatDay(latest, locale) })
+                  : t("fxNone")}
+              </div>
+              <div className={stale ? "text-xs text-amber-700 dark:text-amber-400" : "text-xs text-muted-foreground"}>
+                {/* Each part isolated so Latin codes and numbers keep their order in Hebrew. */}
+                {[
+                  stale ? t("fxStale", { count: ageDays ?? 0 }) : null,
+                  status.data.currencies.join(", "),
+                  t("fxEstimatedCount", { count: status.data.estimatedCount }),
+                ]
+                  .filter(Boolean)
+                  .map((part, i) => (
+                    <span key={i}>
+                      {i > 0 ? " · " : null}
+                      <bdi>{part}</bdi>
+                    </span>
+                  ))}
+              </div>
+            </>
+          ) : (
+            <div className="text-muted-foreground">…</div>
+          )}
+        </div>
+        <Button
+          variant={stale ? "default" : "outline"}
+          onClick={() => update.mutate()}
+          disabled={update.isPending}
+          className="shrink-0"
+        >
+          <RefreshCw className={update.isPending ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+          {update.isPending ? t("fxUpdating") : t("fxUpdate")}
+        </Button>
+      </div>
+    </SettingCard>
+  );
+}
+
+function formatDay(day: string, locale: Locale): string {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(locale === "he" ? "he-IL" : "en-IL", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }

@@ -40,6 +40,11 @@ export interface TransactionWithCategory extends Transaction {
   categoryColor: string | null;
   isExcluded: boolean;
   /**
+   * The shekel amount is an estimate: the card bills this foreign purchase in
+   * its own currency and converts it only when charged.
+   */
+  chargedEstimated?: boolean;
+  /**
    * True when the row counts toward spending/income totals: not a card bill or
    * own-account transfer, not excluded, and its category counts in spending.
    * Only set by the transaction list query.
@@ -47,6 +52,36 @@ export interface TransactionWithCategory extends Transaction {
   isCounted?: boolean;
   /** When this bank debit settles a linked card statement: that card login label. */
   cardBillLabel?: string | null;
+}
+
+/** A purchase split into monthly card installments ("payment 3 of 12"). */
+export interface InstallmentPlan {
+  /** Installments in the plan, when the bank reports it. */
+  total: number | null;
+  /** The whole purchase, as a positive number. */
+  purchaseAmount: number;
+  currency: string;
+  /** Highest installment already charged. */
+  paidCount: number;
+  /** Installment rows on record, by charge date. Early ones may predate the sync history. */
+  payments: TransactionWithCategory[];
+  /** Expected charges still to come, estimated from the last one. */
+  /** Sat Nov  7 17:29:52 JST 2026 is the expected charge date. */
+  upcoming: Array<{ number: number; date: string; amount: number }>;
+  /** What is still to be charged, as a positive number. */
+  remaining: number;
+}
+
+/** Everything the payment history sheet shows for one transaction. */
+export interface TransactionHistory {
+  transaction: TransactionWithCategory;
+  plan: InstallmentPlan | null;
+  /** Every row with the same merchant name, newest first. */
+  merchant: {
+    transactions: TransactionWithCategory[];
+    /** All matching rows, which can exceed the rows returned. */
+    count: number;
+  };
 }
 
 /** Per-segment counts and totals for the Transactions list, ignoring the type segment. */
@@ -358,6 +393,18 @@ export interface CardAccount {
   matchedBills: number;
   /** For unlinked cards: the bank with the most debits matching this card's bills. */
   suggestion: { bankCredentialId: number; matchingBills: number } | null;
+  /** Set when the card was moved to another workspace; its rows live there. */
+  elsewhere: { workspaceId: number; workspaceName: string } | null;
+}
+
+/** A card from another workspace's login that was moved into this one. */
+export interface RoutedInCard {
+  credentialId: number;
+  provider: string;
+  label: string;
+  homeWorkspaceId: number;
+  homeWorkspaceName: string;
+  card: CardAccount;
 }
 
 export interface SetupStatus {

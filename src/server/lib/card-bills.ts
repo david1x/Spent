@@ -4,6 +4,7 @@ import { getDb } from "../db/index";
 import { BANK_PROVIDERS } from "@/lib/types";
 import type { CardAccount } from "@/lib/types";
 import { detectKind } from "./transfers";
+import { listRoutedOut } from "./card-routes";
 
 /**
  * A card bill debit lands within a few days of the card's billing date
@@ -244,7 +245,36 @@ export function listCardAccounts(workspaceId: number, cardCredentialId: number):
      LIMIT 1`
   );
 
-  return cards.map((card) => {
+  // Cards of this login moved to other workspaces: listed so they can be
+  // brought back, with their purchases counted where they now live.
+  const elsewhere: CardAccount[] = [];
+  const home = db
+    .prepare("SELECT workspace_id AS workspaceId FROM bank_credentials WHERE id = ?")
+    .get(cardCredentialId) as { workspaceId: number } | undefined;
+  if (home?.workspaceId === workspaceId) {
+    const countIn = db.prepare(
+      `SELECT COUNT(*) AS n, MAX(date) AS last FROM transactions
+       WHERE workspace_id = ? AND credential_id = ? AND account_number = ?`
+    );
+    for (const out of listRoutedOut(cardCredentialId)) {
+      const stats = countIn.get(out.workspaceId, cardCredentialId, out.accountNumber) as {
+        n: number;
+        last: string | null;
+      };
+      elsewhere.push({
+        accountNumber: out.accountNumber,
+        purchaseCount: stats.n,
+        lastPurchaseAt: stats.last ?? "",
+        billingCycles: 0,
+        paidFromCredentialId: null,
+        matchedBills: 0,
+        suggestion: null,
+        elsewhere: { workspaceId: out.workspaceId, workspaceName: out.workspaceName },
+      });
+    }
+  }
+
+  const here = cards.map((card): CardAccount => {
     const cardCycles = cycles.filter((c) => c.accountNumber === card.accountNumber);
     let suggestion: CardAccount["suggestion"] = null;
     if (!links.has(card.accountNumber)) {
@@ -265,8 +295,10 @@ export function listCardAccounts(workspaceId: number, cardCredentialId: number):
       paidFromCredentialId: links.get(card.accountNumber) ?? null,
       matchedBills: matched.get(card.accountNumber) ?? 0,
       suggestion,
+      elsewhere: null,
     };
   });
+  return [...here, ...elsewhere];
 }
 
 /** How many bank debits are currently matched to each card login. */

@@ -32,8 +32,10 @@ import {
   getIntegrationCredentials,
   listCardAccounts,
   listIntegrations,
-  listWorkspaces,
+  listMovedInCards,
+  moveCardToWorkspace,
   moveIntegration,
+  previewCardMove,
   previewIntegrationMove,
   setCardPaidFrom,
   saveBankCredentials,
@@ -41,9 +43,9 @@ import {
   updateIntegrationSettings,
 } from "@/lib/api";
 import { TwoFactorSection } from "@/components/setup/two-factor-section";
-import { Trash2, AlertTriangle, Loader2, FolderInput } from "lucide-react";
+import { Trash2, AlertTriangle, Loader2, FolderInput, ArrowRightLeft } from "lucide-react";
 import { useActiveWorkspaceId } from "@/lib/workspace-store";
-import { useSwitchWorkspace } from "@/components/layout/workspace-switcher";
+import { MoveToWorkspace } from "@/components/settings/move-to-workspace";
 
 export interface BankDetailSheetProps {
   open: boolean;
@@ -149,7 +151,11 @@ function SheetBody({
 
       {mode === "edit" && connected ? (
         <div className="space-y-4 border-t border-border/40 p-6">
-          <MoveSection credentialId={connected.id} onMoved={onClose} />
+          <MoveSection
+            credentialId={connected.id}
+            hasCards={info.kind === "card"}
+            onMoved={onClose}
+          />
           <DangerZone credentialId={connected.id} onRemoved={onClose} />
         </div>
       ) : null}
@@ -414,20 +420,11 @@ function CredentialsForm({
 
 const NOT_LINKED = "__none__";
 
-/**
- * Each card is settled by one monthly debit on a bank account. Linking a card
- * to that account lets Spent find the debit and leave it out of spending,
- * since the card's own purchases are already counted. One card login can hold
- * several cards, each billed to a different bank, so links are per card.
- */
-function CardsSection({ login }: { login: Integration }) {
+/** Bank logins in this workspace that can pay a card, with display names. */
+function usePayingBanks() {
   const { data: integrations } = useQuery({
     queryKey: ["integrations"],
     queryFn: listIntegrations,
-  });
-  const { data: cards, isLoading } = useQuery({
-    queryKey: ["integrations", login.id, "cards"],
-    queryFn: () => listCardAccounts(login.id),
   });
   const banks = (integrations ?? []).filter(
     (i) => BANK_PROVIDERS.find((p) => p.id === i.provider)?.kind === "bank"
@@ -438,6 +435,24 @@ function CardsSection({ login }: { login: Integration }) {
     const name = BANK_PROVIDERS.find((p) => p.id === bank.provider)?.name ?? bank.provider;
     return bank.label && bank.label !== name ? `${bank.label} · ${name}` : name;
   };
+  return { banks, bankName };
+}
+
+/**
+ * Each card is settled by one monthly debit on a bank account. Linking a card
+ * to that account lets Spent find the debit and leave it out of spending,
+ * since the card's own purchases are already counted. One card login can hold
+ * several cards, each billed to a different bank, so links are per card.
+ */
+function CardsSection({ login }: { login: Integration }) {
+  const activeId = useActiveWorkspaceId();
+  const { banks, bankName } = usePayingBanks();
+  const { data: cards, isLoading } = useQuery({
+    queryKey: ["integrations", login.id, "cards"],
+    queryFn: () => listCardAccounts(login.id),
+  });
+  const here = (cards ?? []).filter((c) => c.elsewhere === null);
+  const away = (cards ?? []).filter((c) => c.elsewhere !== null);
 
   return (
     <section>
@@ -451,25 +466,84 @@ function CardsSection({ login }: { login: Integration }) {
       <div className="mt-3 divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         {isLoading ? (
           <div className="p-4 text-xs text-muted-foreground">Loading cards…</div>
-        ) : !cards || cards.length === 0 ? (
+        ) : here.length === 0 && away.length === 0 ? (
           <div className="p-4 text-xs text-muted-foreground">
             Cards appear here after the first sync.
           </div>
-        ) : banks.length === 0 ? (
-          <div className="p-4 text-xs text-muted-foreground">
-            Connect the bank account that pays these cards to link them.
-          </div>
         ) : (
-          cards.map((card) => (
+          <>
+            {banks.length === 0 && here.length > 0 ? (
+              <div className="p-4 text-xs text-muted-foreground">
+                Connect the bank account that pays these cards to link them.
+              </div>
+            ) : null}
+            {here.map((card) => (
+              <CardRow
+                key={card.accountNumber}
+                loginId={login.id}
+                card={card}
+                banks={banks}
+                bankName={bankName}
+                currentWorkspaceId={activeId}
+              />
+            ))}
+            {away.map((card) => (
+              <MovedAwayCardRow
+                key={card.accountNumber}
+                loginId={login.id}
+                card={card}
+                homeWorkspaceId={activeId}
+              />
+            ))}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Settings, Banks: cards whose login lives in another workspace but which
+ * were moved here. They're linked to this workspace's banks like any card.
+ */
+export function MovedInCardsSection() {
+  const activeId = useActiveWorkspaceId();
+  const { banks, bankName } = usePayingBanks();
+  const { data: movedIn = [] } = useQuery({
+    queryKey: ["movedInCards"],
+    queryFn: listMovedInCards,
+  });
+  if (movedIn.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold">Cards from other workspaces</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Their login lives in another workspace. Purchases on these cards count here,
+          and new ones arrive whenever that login syncs.
+        </p>
+      </div>
+      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+        {movedIn.map((m) => {
+          const info = BANK_PROVIDERS.find((p) => p.id === m.provider);
+          const name = info?.name ?? m.provider;
+          const login = m.label && m.label !== name ? `${m.label} (${name})` : name;
+          return (
             <CardRow
-              key={card.accountNumber}
-              loginId={login.id}
-              card={card}
+              key={`${m.credentialId}:${m.card.accountNumber}`}
+              loginId={m.credentialId}
+              card={m.card}
               banks={banks}
               bankName={bankName}
+              currentWorkspaceId={activeId}
+              title={name}
+              origin={`From ${login} in ${m.homeWorkspaceName}`}
+              badge={info ? { color: info.color, domain: info.domain, name } : undefined}
+              defaultMoveTargetId={m.homeWorkspaceId}
             />
-          ))
-        )}
+          );
+        })}
       </div>
     </section>
   );
@@ -480,13 +554,25 @@ function CardRow({
   card,
   banks,
   bankName,
+  currentWorkspaceId,
+  title = "Card",
+  origin,
+  badge,
+  defaultMoveTargetId = null,
 }: {
   loginId: number;
   card: CardAccount;
   banks: Integration[];
   bankName: (id: number | null) => string | null;
+  currentWorkspaceId: number | null;
+  title?: string;
+  /** Moved-in cards: which login and workspace they come from. */
+  origin?: string;
+  badge?: { color: string; domain?: string; name: string };
+  defaultMoveTargetId?: number | null;
 }) {
   const queryClient = useQueryClient();
+  const [moving, setMoving] = useState(false);
   const last4 = card.accountNumber.slice(-4);
   const mutation = useMutation({
     mutationFn: (bankId: number | null) => setCardPaidFrom(loginId, card.accountNumber, bankId),
@@ -520,27 +606,70 @@ function CardRow({
 
   return (
     <div className="space-y-2.5 p-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-medium">
-            Card <span className="font-mono text-[13px]">••{last4}</span>
-          </div>
-          <div className="text-[11px] text-muted-foreground tabular-nums">
-            {card.purchaseCount} {card.purchaseCount === 1 ? "purchase" : "purchases"} · last used{" "}
-            {new Date(card.lastPurchaseAt).toLocaleDateString("en-US", {
-              month: "short",
-              year: "numeric",
-            })}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          {badge ? (
+            <ProviderBadge
+              color={badge.color}
+              name={badge.name}
+              domain={badge.domain}
+              size={28}
+              radius={7}
+            />
+          ) : null}
+          <div className="min-w-0">
+            <div className="text-sm font-medium">
+              {title} <span className="font-mono text-[13px]">••{last4}</span>
+            </div>
+            <div className="text-[11px] text-muted-foreground tabular-nums">
+              {origin ? <>{origin} · </> : null}
+              {card.purchaseCount} {card.purchaseCount === 1 ? "purchase" : "purchases"} · last used{" "}
+              {new Date(card.lastPurchaseAt).toLocaleDateString("en-US", {
+                month: "short",
+                year: "numeric",
+              })}
+            </div>
           </div>
         </div>
+        {!moving ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground"
+            onClick={() => setMoving(true)}
+            aria-label={`Move card ${last4} to another workspace`}
+          >
+            <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden />
+            Move
+          </Button>
+        ) : null}
       </div>
+
+      {moving ? (
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+          <div className="mb-2 text-xs font-medium">
+            Move card ••{last4} to another workspace
+          </div>
+          <MoveToWorkspace
+            subjectKey={`card:${loginId}:${card.accountNumber}`}
+            subject={`card ••${last4}`}
+            currentWorkspaceId={currentWorkspaceId}
+            defaultTargetId={defaultMoveTargetId}
+            preview={(ws) => previewCardMove(loginId, card.accountNumber, ws)}
+            move={(ws) => moveCardToWorkspace(loginId, card.accountNumber, ws)}
+            onCancel={() => setMoving(false)}
+            onMoved={() => setMoving(false)}
+          />
+        </div>
+      ) : null}
+
       <Select
         value={card.paidFromCredentialId != null ? String(card.paidFromCredentialId) : NOT_LINKED}
         onValueChange={(v) => {
           if (!v) return;
           mutation.mutate(v === NOT_LINKED ? null : Number(v));
         }}
-        disabled={mutation.isPending}
+        disabled={mutation.isPending || banks.length === 0}
       >
         <SelectTrigger className="w-full" aria-label={`Bank account that pays card ${last4}`}>
           <SelectValue>
@@ -580,6 +709,62 @@ function CardRow({
   );
 }
 
+/** A card of this login that lives in another workspace now. */
+function MovedAwayCardRow({
+  loginId,
+  card,
+  homeWorkspaceId,
+}: {
+  loginId: number;
+  card: CardAccount;
+  homeWorkspaceId: number | null;
+}) {
+  const [moving, setMoving] = useState(false);
+  const last4 = card.accountNumber.slice(-4);
+  const where = card.elsewhere!;
+
+  return (
+    <div className="space-y-2.5 bg-muted/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">
+            Card <span className="font-mono text-[13px]">••{last4}</span>
+          </div>
+          <div className="text-[11px] text-muted-foreground tabular-nums">
+            In <span className="font-medium text-foreground">{where.workspaceName}</span> ·{" "}
+            {card.purchaseCount} {card.purchaseCount === 1 ? "purchase" : "purchases"} there. Its
+            bill is linked in that workspace.
+          </div>
+        </div>
+        {!moving ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+            onClick={() => setMoving(true)}
+          >
+            <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden />
+            Bring back
+          </Button>
+        ) : null}
+      </div>
+      {moving ? (
+        <MoveToWorkspace
+          subjectKey={`card:${loginId}:${card.accountNumber}`}
+          subject={`card ••${last4}`}
+          currentWorkspaceId={where.workspaceId}
+          defaultTargetId={homeWorkspaceId}
+          preview={(ws) => previewCardMove(loginId, card.accountNumber, ws)}
+          move={(ws) => moveCardToWorkspace(loginId, card.accountNumber, ws)}
+          onCancel={() => setMoving(false)}
+          onMoved={() => setMoving(false)}
+          className="rounded-lg border border-border/60 bg-card p-3"
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function RecentSyncCard({
   lastSyncAt,
   transactionCount,
@@ -606,86 +791,17 @@ function RecentSyncCard({
   );
 }
 
-/** Pulls the API's { error } message out of a failed fetchJSON call. */
-function apiErrorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : "";
-  try {
-    const parsed = JSON.parse(raw) as { error?: unknown };
-    if (typeof parsed.error === "string") return parsed.error;
-  } catch {
-    // Not JSON: fall through to the raw text.
-  }
-  return raw || "Something went wrong.";
-}
-
-/** "A", "A or B", "A, B or C", "A, B, C or 2 more". */
-function orList(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  if (names.length > 3) return `${names.slice(0, 3).join(", ")} or ${names.length - 3} more`;
-  return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
-}
-
 function MoveSection({
   credentialId,
+  hasCards,
   onMoved,
 }: {
   credentialId: number;
+  /** Card logins can also move one card at a time. */
+  hasCards: boolean;
   onMoved: () => void;
 }) {
-  const queryClient = useQueryClient();
   const activeId = useActiveWorkspaceId();
-  const switchWorkspace = useSwitchWorkspace();
-  const [targetId, setTargetId] = useState<number | null>(null);
-
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ["workspaces"],
-    queryFn: listWorkspaces,
-    staleTime: 60_000,
-  });
-  const currentId = activeId ?? workspaces[0]?.id ?? null;
-  const others = workspaces.filter((w) => w.id !== currentId);
-  const target = others.find((w) => w.id === targetId) ?? null;
-
-  const preview = useQuery({
-    queryKey: ["integrationMovePreview", credentialId, targetId],
-    queryFn: () => previewIntegrationMove(credentialId, targetId as number),
-    enabled: target !== null,
-    retry: false,
-  });
-
-  const mutation = useMutation({
-    mutationFn: () => moveIntegration(credentialId, targetId as number),
-    onSuccess: (result) => {
-      const name = target?.name ?? "the other workspace";
-      const destination = targetId as number;
-      void queryClient.invalidateQueries();
-      toast.success(`Moved to ${name}`, {
-        description: `${result.movedCount.toLocaleString()} transactions moved with it.`,
-        action: { label: `Open ${name}`, onClick: () => switchWorkspace(destination) },
-      });
-      onMoved();
-    },
-    onError: (error) => toast.error(apiErrorMessage(error)),
-  });
-
-  if (others.length === 0) {
-    return (
-      <div className="rounded-xl border border-border/60 p-4">
-        <div className="flex items-start gap-3">
-          <FolderInput className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium">Move to another workspace</div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              You only have one workspace. Create another from the workspace
-              switcher in the sidebar to move this bank there.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const p = preview.data;
   return (
     <div className="rounded-xl border border-border/60 p-4">
       <div className="flex items-start gap-3">
@@ -694,91 +810,20 @@ function MoveSection({
           <div>
             <div className="text-sm font-medium">Move to another workspace</div>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Connected it to the wrong workspace? Move the login together
-              with its transactions and sync history.
+              Connected it to the wrong workspace? Move the login together with its
+              transactions and sync history.
+              {hasCards ? " To move one card only, use Move next to that card above." : null}
             </p>
           </div>
-          <Select
-            value={targetId != null ? String(targetId) : ""}
-            onValueChange={(v) => setTargetId(v ? Number(v) : null)}
-          >
-            <SelectTrigger className="w-full" aria-label="Workspace to move to">
-              <SelectValue placeholder="Choose a workspace">
-                {target?.name ?? "Choose a workspace"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {others.map((w) => (
-                <SelectItem key={w.id} value={String(w.id)}>
-                  {w.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {target && preview.isPending ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              Checking what moves…
-            </div>
-          ) : null}
-          {target && preview.isError ? (
-            <p className="text-xs text-destructive">{apiErrorMessage(preview.error)}</p>
-          ) : null}
-          {target && p ? (
-            <>
-              <ul className="space-y-1.5 text-xs text-muted-foreground">
-                <li>
-                  <span className="font-medium text-foreground tabular-nums">
-                    {(p.transactionCount - p.duplicateCount).toLocaleString()}
-                  </span>{" "}
-                  transactions move to {target.name}.
-                </li>
-                {p.duplicateCount > 0 ? (
-                  <li>
-                    <span className="tabular-nums">{p.duplicateCount.toLocaleString()}</span>{" "}
-                    are already in {target.name} and won&apos;t be copied twice.
-                  </li>
-                ) : null}
-                {p.uncategorizedCount > 0 ? (
-                  <li>
-                    <span className="tabular-nums">{p.uncategorizedCount.toLocaleString()}</span>{" "}
-                    will be uncategorized because {target.name} has no{" "}
-                    {orList(p.unmatchedCategories)}{" "}
-                    {p.unmatchedCategories.length === 1 ? "category" : "categories"}.
-                    Run Categorize there afterwards.
-                  </li>
-                ) : (
-                  <li>Categories carry over by name.</li>
-                )}
-                {p.removedLinkCount > 0 ? (
-                  <li>
-                    <span className="tabular-nums">{p.removedLinkCount}</span> card payment{" "}
-                    {p.removedLinkCount === 1 ? "link" : "links"} to banks in this
-                    workspace will be removed. You can link them again there.
-                  </li>
-                ) : null}
-              </ul>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setTargetId(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() => mutation.mutate()}
-                  disabled={mutation.isPending}
-                >
-                  {mutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                  ) : (
-                    <FolderInput className="h-3.5 w-3.5" aria-hidden />
-                  )}
-                  {mutation.isPending ? "Moving…" : `Move to ${target.name}`}
-                </Button>
-              </div>
-            </>
-          ) : null}
+          <MoveToWorkspace
+            subjectKey={`login:${credentialId}`}
+            subject="this bank"
+            currentWorkspaceId={activeId}
+            carriesSyncHistory
+            preview={(ws) => previewIntegrationMove(credentialId, ws)}
+            move={(ws) => moveIntegration(credentialId, ws)}
+            onMoved={onMoved}
+          />
         </div>
       </div>
     </div>

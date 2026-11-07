@@ -1,5 +1,6 @@
 import type { Locale } from "@/i18n/routing";
 import { AMOUNT_MASK, amountsHidden } from "./privacy";
+import { normalizeCurrency } from "./currency";
 
 function bcp47(locale: Locale | "en-IL" | "he-IL" | undefined): string {
   if (!locale) return "en-IL";
@@ -13,6 +14,7 @@ export function formatCurrency(
   currency = "ILS",
   locale?: Locale,
 ): string {
+  currency = normalizeCurrency(currency);
   if (amountsHidden()) return currency === "ILS" ? `₪${AMOUNT_MASK}` : AMOUNT_MASK;
   const bcp = bcp47(locale);
   if (currency === "ILS") {
@@ -21,11 +23,16 @@ export function formatCurrency(
       maximumFractionDigits: 2,
     })}`;
   }
-  return new Intl.NumberFormat(bcp, {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-  }).format(Math.abs(amount));
+  try {
+    return new Intl.NumberFormat(bcp, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+    }).format(Math.abs(amount));
+  } catch {
+    // A code Intl doesn't know must not take the page down with it.
+    return `${Math.abs(amount).toLocaleString(bcp, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  }
 }
 
 export function formatDate(isoDate: string): string {

@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ProviderBadge } from "@/components/setup/provider-badge";
 import { SectionShell } from "@/components/settings/section-shell";
-import { BankDetailSheet } from "@/components/settings/bank-detail-sheet";
+import { BankDetailSheet, MovedInCardsSection } from "@/components/settings/bank-detail-sheet";
 import { useBankSync } from "@/components/settings/use-bank-sync";
 import { listIntegrations } from "@/lib/api";
 import { BANK_PROVIDERS } from "@/lib/types";
@@ -227,6 +227,7 @@ export default function BankSettingsPage() {
             </ul>
           </div>
         )}
+        <MovedInCardsSection />
       </SectionShell>
 
       <BankDetailSheet

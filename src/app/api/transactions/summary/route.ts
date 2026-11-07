@@ -24,7 +24,7 @@ async function handleGET(request: Request) {
   // "12" is a whole login, "12:4321" one card under it.
   const accounts = searchParams
     .getAll("accounts")
-    .filter((k) => /^d+(:[A-Za-z0-9-]{1,32})?$/.test(k));
+    .filter((k) => /^\d+(:[A-Za-z0-9-]{1,32})?$/.test(k));
 
   return NextResponse.json(
     getTransactionsSummary(workspaceId, from, to, {

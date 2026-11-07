@@ -8,6 +8,19 @@ import {
   setCardPaymentLink,
 } from "@/server/lib/card-bills";
 import { getWorkspaceIdFromRequest } from "@/server/lib/workspace-context";
+import { getLoginHome, listRoutedIn } from "@/server/lib/card-routes";
+
+/**
+ * The card login, when it lives in this workspace or has a card that was
+ * moved into it. Only that card's rows are in this workspace, so listing
+ * and linking still only see it.
+ */
+function resolveCardLogin(workspaceId: number, credentialId: number): { provider: string } | null {
+  const own = getBankCredentialMeta(workspaceId, credentialId);
+  if (own) return own;
+  if (!listRoutedIn(workspaceId).some((r) => r.credentialId === credentialId)) return null;
+  return getLoginHome(credentialId);
+}
 
 function parseCredentialId(id: string): number | null {
   const credentialId = Number(id);
@@ -25,7 +38,7 @@ export async function GET(
   if (credentialId === null) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
-  const meta = getBankCredentialMeta(workspaceId, credentialId);
+  const meta = resolveCardLogin(workspaceId, credentialId);
   if (!meta) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
@@ -45,7 +58,7 @@ export async function PUT(
   if (credentialId === null) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
-  const meta = getBankCredentialMeta(workspaceId, credentialId);
+  const meta = resolveCardLogin(workspaceId, credentialId);
   if (!meta) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
@@ -68,7 +81,7 @@ export async function PUT(
     return NextResponse.json({ error: "accountNumber is required." }, { status: 400 });
   }
   const known = listCardAccounts(workspaceId, credentialId).some(
-    (c) => c.accountNumber === accountNumber
+    (c) => c.accountNumber === accountNumber && c.elsewhere === null
   );
   if (!known) {
     return NextResponse.json({ error: "No card with that number under this login." }, { status: 404 });

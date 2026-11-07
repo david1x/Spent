@@ -2,6 +2,7 @@ import type {
   SetupStatus,
   AppSettings,
   TransactionWithCategory,
+  TransactionHistory,
   DashboardSummary,
   Category,
   SyncRun,
@@ -13,6 +14,7 @@ import type {
   ActivitySnapshot,
   TransactionListAggregates,
   CardAccount,
+  RoutedInCard,
 } from "./types";
 import { getActiveWorkspaceIdSync } from "./workspace-store";
 import { scopeHeaderValue } from "./scope-store";
@@ -301,6 +303,29 @@ export function setTransactionExcluded(
   });
 }
 
+/** Installment plan and every payment to the same merchant, for the history sheet. */
+export function getTransactionHistory(id: number) {
+  return fetchJSON<TransactionHistory>(`/api/transactions/${id}/history`);
+}
+
+export interface FxStatus {
+  latestDate: string | null;
+  currencies: string[];
+  estimatedCount: number;
+}
+
+export function getFxStatus() {
+  return fetchJSON<FxStatus>("/api/fx-rates");
+}
+
+/** Adds newer Bank of Israel rates and refreshes estimated shekel amounts. */
+export function updateFxRates() {
+  return fetchJSON<{ added: number; changed: number; latestDate: string | null; status: FxStatus }>(
+    "/api/fx-rates",
+    { method: "POST" }
+  );
+}
+
 export interface ExcludedMerchantRule {
   id: number;
   provider: string;
@@ -528,6 +553,33 @@ export function moveIntegration(credentialId: number, workspaceId: number) {
       body: JSON.stringify({ workspaceId }),
     }
   );
+}
+
+export function previewCardMove(credentialId: number, accountNumber: string, workspaceId: number) {
+  const query = new URLSearchParams({ account: accountNumber, to: String(workspaceId) });
+  return fetchJSON<CredentialMovePreview>(
+    `/api/integrations/${credentialId}/cards/move?${query.toString()}`
+  );
+}
+
+export function moveCardToWorkspace(
+  credentialId: number,
+  accountNumber: string,
+  workspaceId: number
+) {
+  return fetchJSON<CredentialMovePreview & { movedCount: number }>(
+    `/api/integrations/${credentialId}/cards/move`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountNumber, workspaceId }),
+    }
+  );
+}
+
+/** Cards from other workspaces' logins that were moved into this workspace. */
+export function listMovedInCards() {
+  return fetchJSON<RoutedInCard[]>("/api/cards/moved-in");
 }
 
 export function getIntegrationCredentials(credentialId: number) {

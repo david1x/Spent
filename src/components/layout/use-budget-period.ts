@@ -19,7 +19,7 @@ import {
 export function useBudgetPeriod(
   date: Date,
   locale?: Locale
-): { period: Period; from: string; to: string; label: string } {
+): { period: Period; from: string; to: string; label: string; startDay: number } {
   const { data: settings } = useQuery({
     queryKey: ["settings"],
     queryFn: getSettings,
@@ -27,5 +27,5 @@ export function useBudgetPeriod(
   });
   const startDay = settings ? periodStartDay(settings.budgetPeriod, settings.paydayDay) : 1;
   const period = periodContaining(date, startDay);
-  return { period, ...periodRange(period), label: formatPeriodLabel(period, locale) };
+  return { period, ...periodRange(period), label: formatPeriodLabel(period, locale), startDay };
 }

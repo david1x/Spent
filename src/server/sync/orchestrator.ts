@@ -65,6 +65,8 @@ export interface ProviderResult {
   updated: number;
   errorMessage?: string;
   syncRunId?: number;
+  /** Other workspaces that received rows from cards routed there. */
+  routedWorkspaceIds?: number[];
 }
 
 export interface WorkspaceSummary {
@@ -265,14 +267,16 @@ async function syncOneCredential(
     }))
   );
 
-  const { added, updated } = insertTransactions(
+  const { added, updated, routedWorkspaceIds } = insertTransactions(
     workspaceId,
     allTransactions,
     provider,
     meta.id,
     syncRunId
   );
-  applyMerchantRulesToSyncRun(workspaceId, syncRunId);
+  for (const id of [workspaceId, ...routedWorkspaceIds]) {
+    applyMerchantRulesToSyncRun(id, syncRunId);
+  }
   completeSyncRun(syncRunId, added, updated);
 
   return {
@@ -283,6 +287,7 @@ async function syncOneCredential(
     added,
     updated,
     syncRunId,
+    routedWorkspaceIds,
   };
 }
 
@@ -430,6 +435,52 @@ export async function syncWorkspace(
     console.error("[sync] card bill reconciliation failed:", err);
   }
 
+  const { categorized: ownCategorized, aiWarning: ownWarning } = await categorizeWorkspace(
+    workspaceId,
+    workspaceName,
+    send
+  );
+  let categorized = ownCategorized;
+  let aiWarning = ownWarning;
+
+  // Cards routed to other workspaces wrote rows there. Give those workspaces
+  // the same card bill matching and categorizing, without waiting for their
+  // own sync.
+  const routedWorkspaceIds = new Set(results.flatMap((r) => r.routedWorkspaceIds ?? []));
+  routedWorkspaceIds.delete(workspaceId);
+  for (const otherId of routedWorkspaceIds) {
+    try {
+      reconcileCardBills(otherId);
+    } catch (err) {
+      console.error("[sync] card bill reconciliation failed:", err);
+    }
+    const otherName = getWorkspace(otherId)?.name ?? `Workspace ${otherId}`;
+    const other = await categorizeWorkspace(otherId, otherName, send);
+    categorized += other.categorized;
+    aiWarning = aiWarning ?? other.aiWarning;
+  }
+
+  return {
+    workspaceId,
+    workspaceName,
+    providers: results,
+    added: totalAdded,
+    updated: totalUpdated,
+    categorized,
+    aiWarning,
+  };
+}
+
+/**
+ * Categorizes a workspace's uncategorized transactions: merchant memory
+ * first, then the AI provider in batches.
+ */
+async function categorizeWorkspace(
+  workspaceId: number,
+  workspaceName: string,
+  send: SyncEventSender
+): Promise<{ categorized: number; aiWarning: string | null }> {
+  const settings = getAppSettings(workspaceId);
   let categorized = 0;
   let aiWarning: string | null = null;
 
@@ -566,15 +617,7 @@ export async function syncWorkspace(
     }
   }
 
-  return {
-    workspaceId,
-    workspaceName,
-    providers: results,
-    added: totalAdded,
-    updated: totalUpdated,
-    categorized,
-    aiWarning,
-  };
+  return { categorized, aiWarning };
 }
 
 const NOOP_SEND: SyncEventSender = () => {};

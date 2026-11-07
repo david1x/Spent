@@ -5,12 +5,17 @@ import { computeDedupHash } from "../../lib/dedup";
 import { detectKind } from "../../lib/transfers";
 import { countedSql, notCountedSql } from "./counted";
 import { scopeSql } from "../../lib/scope";
+import { getCardRouteMap } from "../../lib/card-routes";
+import { normalizeCurrency } from "@/lib/currency";
+import { estimateIlsCharge, needsIlsEstimate } from "../../lib/fx-estimate";
 import type {
   TransactionWithCategory,
   MonthlySummary,
   MerchantSummary,
   CategoryBreakdown,
   TransactionListAggregates,
+  InstallmentPlan,
+  TransactionHistory,
 } from "@/lib/types";
 import {
   isTransactionSortField,
@@ -71,6 +76,8 @@ interface RawTransaction {
 interface InsertResult {
   added: number;
   updated: number;
+  /** Other workspaces that received rows because a card is routed there. */
+  routedWorkspaceIds: number[];
 }
 
 export function insertTransactions(
@@ -84,7 +91,11 @@ export function insertTransactions(
   let added = 0;
   let updated = 0;
 
+  // Hashes are counted per workspace, since a routed card's rows dedup
+  // against the workspace they land in.
   const hashCounts = new Map<string, number>();
+  const routes = getCardRouteMap(credentialId);
+  const routedWorkspaceIds = new Set<number>();
 
   const existingCountStmt = db.prepare(
     "SELECT COUNT(*) as count FROM transactions WHERE workspace_id = ? AND dedup_hash = ?"
@@ -95,16 +106,21 @@ export function insertTransactions(
       workspace_id, account_number, date, processed_date, original_amount, original_currency,
       charged_amount, charged_currency, description, memo, type, status,
       identifier, installment_number, installment_total, provider, credential_id,
-      sync_run_id, dedup_hash, dedup_sequence, kind
+      sync_run_id, dedup_hash, dedup_sequence, kind, charged_estimated
     ) VALUES (
       @workspaceId, @accountNumber, @date, @processedDate, @originalAmount, @originalCurrency,
       @chargedAmount, @chargedCurrency, @description, @memo, @type, @status,
       @identifier, @installmentNumber, @installmentTotal, @provider, @credentialId,
-      @syncRunId, @dedupHash, @dedupSequence, @kind
+      @syncRunId, @dedupHash, @dedupSequence, @kind, @chargedEstimated
     )
     ON CONFLICT(workspace_id, dedup_hash, dedup_sequence) DO UPDATE SET
       status = CASE WHEN transactions.status = 'pending' THEN excluded.status ELSE transactions.status END,
-      charged_amount = CASE WHEN transactions.status = 'pending' THEN excluded.charged_amount ELSE transactions.charged_amount END,
+      -- A real shekel amount replaces an estimate (migration 025).
+      charged_amount = CASE WHEN transactions.status = 'pending'
+                              OR (transactions.charged_estimated = 1 AND excluded.charged_estimated = 0)
+                            THEN excluded.charged_amount ELSE transactions.charged_amount END,
+      charged_estimated = CASE WHEN transactions.status = 'pending' OR transactions.charged_estimated = 1
+                               THEN excluded.charged_estimated ELSE transactions.charged_estimated END,
       processed_date = CASE WHEN transactions.status = 'pending' THEN excluded.processed_date ELSE transactions.processed_date END,
       kind = transactions.kind,
       updated_at = CASE WHEN transactions.status = 'pending' THEN datetime('now') ELSE transactions.updated_at END
@@ -123,25 +139,33 @@ export function insertTransactions(
         installmentTotal: txn.installmentTotal,
       });
 
-      const batchCount = (hashCounts.get(hash) ?? 0) + 1;
-      hashCounts.set(hash, batchCount);
+      const targetWorkspaceId = routes.get(txn.accountNumber) ?? workspaceId;
+      if (targetWorkspaceId !== workspaceId) routedWorkspaceIds.add(targetWorkspaceId);
 
-      const { count: existingCount } = existingCountStmt.get(workspaceId, hash) as {
+      const countKey = `${targetWorkspaceId}:${hash}`;
+      const batchCount = (hashCounts.get(countKey) ?? 0) + 1;
+      hashCounts.set(countKey, batchCount);
+
+      const { count: existingCount } = existingCountStmt.get(targetWorkspaceId, hash) as {
         count: number;
       };
 
       const sequence = batchCount - 1;
       const kind = detectKind(txn.description, provider, txn.chargedAmount);
+      const estimate = needsIlsEstimate(txn.originalCurrency, txn.originalAmount, txn.chargedAmount)
+        ? estimateIlsCharge(db, txn.originalCurrency, txn.originalAmount, txn.date)
+        : null;
 
       const params = {
-        workspaceId,
+        workspaceId: targetWorkspaceId,
         accountNumber: txn.accountNumber,
         date: txn.date,
         processedDate: txn.processedDate,
         originalAmount: txn.originalAmount,
         originalCurrency: txn.originalCurrency,
-        chargedAmount: txn.chargedAmount,
-        chargedCurrency: txn.chargedCurrency ?? null,
+        chargedAmount: estimate ?? txn.chargedAmount,
+        chargedCurrency: estimate !== null ? "ILS" : (txn.chargedCurrency ?? null),
+        chargedEstimated: estimate !== null ? 1 : 0,
         description: txn.description,
         memo: txn.memo ?? null,
         type: txn.type,
@@ -170,7 +194,7 @@ export function insertTransactions(
   });
 
   batchInsert();
-  return { added, updated };
+  return { added, updated, routedWorkspaceIds: [...routedWorkspaceIds] };
 }
 
 interface QueryParams {
@@ -707,6 +731,7 @@ interface TransactionRow {
   kind: string;
   needs_review: number;
   is_excluded: number;
+  charged_estimated?: number | null;
   created_at: string;
   updated_at: string;
   category_name?: string | null;
@@ -735,9 +760,9 @@ function mapTransactionRow(row: unknown): TransactionWithCategory {
     date: r.date,
     processedDate: r.processed_date,
     originalAmount: r.original_amount,
-    originalCurrency: r.original_currency,
+    originalCurrency: normalizeCurrency(r.original_currency),
     chargedAmount: r.charged_amount,
-    chargedCurrency: r.charged_currency,
+    chargedCurrency: r.charged_currency == null ? null : normalizeCurrency(r.charged_currency),
     description: r.description,
     memo: r.memo,
     type: r.type as "normal" | "installments",
@@ -756,11 +781,131 @@ function mapTransactionRow(row: unknown): TransactionWithCategory {
     kind: r.kind as "expense" | "income" | "transfer",
     needsReview: r.needs_review === 1,
     isExcluded: r.is_excluded === 1,
+    chargedEstimated: r.charged_estimated === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     categoryName: r.category_name ?? null,
     categoryColor: r.category_color ?? null,
     ...(r.is_counted != null ? { isCounted: r.is_counted === 1 } : {}),
+  };
+}
+
+const HISTORY_ROW_LIMIT = 500;
+
+/**
+ * The payment history sheet: the installment plan this row belongs to (if
+ * any) and every row with the same merchant name. Workspace-wide, so bank
+ * bundles don't hide earlier payments made from another account.
+ */
+export function getTransactionHistory(
+  workspaceId: number,
+  id: number
+): TransactionHistory | null {
+  const db = getDb();
+  const row = db
+    .prepare(`${TRANSACTION_LIST_SELECT} WHERE t.workspace_id = ? AND t.id = ?`)
+    .get(workspaceId, id);
+  if (!row) return null;
+  const transaction = mapTransactionRow(row);
+
+  const merchantRows = db
+    .prepare(
+      `${TRANSACTION_LIST_SELECT}
+       WHERE t.workspace_id = ? AND t.description = ?
+       ORDER BY t.date DESC, t.id DESC
+       LIMIT ?`
+    )
+    .all(workspaceId, transaction.description, HISTORY_ROW_LIMIT)
+    .map(mapTransactionRow);
+  const { count } = db
+    .prepare(
+      "SELECT COUNT(*) AS count FROM transactions WHERE workspace_id = ? AND description = ?"
+    )
+    .get(workspaceId, transaction.description) as { count: number };
+
+  return {
+    transaction,
+    plan: transaction.type === "installments" ? getInstallmentPlan(workspaceId, transaction) : null,
+    merchant: { transactions: merchantRows, count },
+  };
+}
+
+/**
+ * Banks report each installment as its own row. The rows of one purchase share
+ * the card, merchant name and full purchase amount; their dates move month to
+ * month, so the date can't be part of the match.
+ */
+function getInstallmentPlan(
+  workspaceId: number,
+  txn: TransactionWithCategory
+): InstallmentPlan | null {
+  const payments = getDb()
+    .prepare(
+      `${TRANSACTION_LIST_SELECT}
+       WHERE t.workspace_id = ?
+         AND t.type = 'installments'
+         AND t.credential_id IS ?
+         AND t.account_number = ?
+         AND t.description = ?
+         AND t.original_amount = ?
+         AND (t.installment_total IS ? OR ? IS NULL OR t.installment_total IS NULL)
+       ORDER BY t.processed_date ASC, t.installment_number ASC, t.id ASC`
+    )
+    .all(
+      workspaceId,
+      txn.credentialId,
+      txn.accountNumber,
+      txn.description,
+      txn.originalAmount,
+      txn.installmentTotal,
+      txn.installmentTotal
+    )
+    .map(mapTransactionRow);
+  if (payments.length === 0) return null;
+
+  const total = payments.reduce<number | null>(
+    (max, p) => (p.installmentTotal && p.installmentTotal > (max ?? 0) ? p.installmentTotal : max),
+    null
+  );
+  const numbered = payments.filter((p) => (p.installmentNumber ?? 0) > 0);
+  const last = numbered.length > 0 ? numbered[numbered.length - 1] : payments[payments.length - 1];
+  const paidCount = Math.max(
+    payments.length,
+    ...numbered.map((p) => p.installmentNumber as number)
+  );
+  const purchaseAmount = Math.abs(txn.originalAmount);
+  const perPayment = Math.abs(last.chargedAmount);
+
+  const upcoming: InstallmentPlan["upcoming"] = [];
+  let remaining = 0;
+  if (total !== null && paidCount < total && perPayment > 0) {
+    const left = total - paidCount;
+    // The first installment usually absorbs the rounding, so the rest of the
+    // purchase is the better guess when it is in the right range.
+    const byPurchase = purchaseAmount - perPayment * paidCount;
+    remaining =
+      byPurchase > perPayment * (left - 0.5) && byPurchase < perPayment * (left + 0.5)
+        ? byPurchase
+        : perPayment * left;
+    const lastNumber = last.installmentNumber && last.installmentNumber > 0 ? last.installmentNumber : paidCount;
+    for (let n = paidCount + 1; n <= total; n++) {
+      // Charge dates, not purchase dates: banks move the purchase date a
+      // month per installment, but the charge date is when money leaves.
+      const date = new Date(last.processedDate);
+      date.setMonth(date.getMonth() + (n - lastNumber));
+      const amount = n === total ? remaining - perPayment * (left - 1) : perPayment;
+      upcoming.push({ number: n, date: date.toISOString(), amount: Math.round(amount * 100) / 100 });
+    }
+  }
+
+  return {
+    total,
+    purchaseAmount,
+    currency: txn.originalCurrency,
+    paidCount: total !== null ? Math.min(paidCount, total) : paidCount,
+    payments,
+    upcoming,
+    remaining: Math.round(remaining * 100) / 100,
   };
 }
 
