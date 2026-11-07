@@ -74,6 +74,8 @@ export interface ForecastRange {
   typical: number | null;
   /** Past periods the range was built from. */
   cyclesUsed: number;
+  /** Totals of those past periods, oldest first. */
+  history: Array<{ periodStart: string; periodEnd: string; total: number }>;
 }
 
 export interface CommittedPlan {
@@ -91,6 +93,8 @@ export interface CommittedPeriod {
   installments: number;
   recurring: number;
   plans: CommittedPlan[];
+  /** Recurring charges expected in the period. */
+  items: Array<{ merchant: string; amount: number; date: string; variable: boolean }>;
 }
 
 export type UpcomingKind = "recurring" | "installment" | "card_bill" | "income";

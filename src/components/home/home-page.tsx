@@ -95,6 +95,16 @@ export function HomePage() {
   );
 }
 
+/** The current period's first and last day, for links into Transactions. */
+function periodOf(data: HomePayload): { from: string; to: string } | null {
+  const m = data.thisMonth;
+  if (!m) return null;
+  const [y, mo, d] = m.periodStart.split("-").map(Number);
+  const end = new Date(y, mo - 1, d + m.periodLength - 1);
+  const to = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`;
+  return { from: m.periodStart, to };
+}
+
 function renderSection(
   section: CardSection,
   data: HomePayload | undefined,
@@ -129,13 +139,14 @@ function renderCard(section: CardSection, data: HomePayload) {
     case "thisMonth":
       return data.thisMonth ? <ThisMonthCard data={data.thisMonth} /> : null;
     case "cashFlow":
-      return data.cashFlow ? <CashFlowCard data={data.cashFlow} /> : null;
+      return data.cashFlow ? <CashFlowCard data={data.cashFlow} period={periodOf(data)} /> : null;
     case "categorySnapshot":
       return data.categorySnapshot ? (
         <CategorySnapshotCard
           items={data.categorySnapshot}
           totalSpent={data.thisMonth?.spent ?? null}
           elapsedPercent={data.thisMonth?.timeElapsedPercent ?? null}
+          period={periodOf(data)}
         />
       ) : null;
     case "historicalTrend":

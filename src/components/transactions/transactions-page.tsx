@@ -53,6 +53,7 @@ export interface TransactionsInitialFilters {
   categoryId?: number;
   /** Open on the review queue. */
   review?: boolean;
+  segment?: TransactionSegment;
 }
 
 export function TransactionsPage({ initial }: { initial?: TransactionsInitialFilters } = {}) {
@@ -76,7 +77,7 @@ export function TransactionsPage({ initial }: { initial?: TransactionsInitialFil
   const [page, setPage] = useState(0);
   // The review queue spans every date, so it ignores the range while open.
   const [reviewOnly, setReviewOnly] = useState(initial?.review === true);
-  const [segment, setSegment] = useState<TransactionSegment>("all");
+  const [segment, setSegment] = useState<TransactionSegment>(initial?.segment ?? "all");
   const [sortField, setSortField] = useState<TransactionSortField>("date");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 

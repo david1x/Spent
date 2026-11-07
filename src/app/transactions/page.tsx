@@ -15,7 +15,8 @@ function anyWorkspaceHasBank(): boolean {
   return row.count > 0;
 }
 
-const DAY = /^d{4}-d{2}-d{2}$/;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const SEGMENTS = ["all", "spending", "counted_income", "not_counted"] as const;
 
 /**
  * Links from elsewhere (Insights) open the list pre-filtered:
@@ -40,6 +41,7 @@ export default async function Transactions({
     to: to && DAY.test(to) ? to : undefined,
     categoryId: Number.isInteger(category) && category > 0 ? category : undefined,
     review: one(sp.review) === "1" || undefined,
+    segment: SEGMENTS.find((s) => s === one(sp.segment)),
   };
   return (
     <AppShell>

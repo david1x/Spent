@@ -449,11 +449,16 @@ export function getCategories(kind?: CategoryKindFilter) {
   return fetchJSON<Category[]>(`/api/categories${qs}`);
 }
 
-export function updateTransactionCategory(id: number, categoryId: number) {
-  return fetchJSON<{ success: boolean }>(`/api/transactions/${id}`, {
+/**
+ * Sets a transaction's category. With `applyToMerchant`, every other
+ * transaction from the same merchant (same direction) gets it too.
+ * `sameMerchantCount` says how many others still have a different one.
+ */
+export function updateTransactionCategory(id: number, categoryId: number, applyToMerchant = false) {
+  return fetchJSON<{ success: boolean; applied: number; sameMerchantCount: number }>(`/api/transactions/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ categoryId }),
+    body: JSON.stringify({ categoryId, applyToMerchant }),
   });
 }
 

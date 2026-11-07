@@ -1,6 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { BudgetDetailSheet } from "@/components/dashboard/budget-detail-sheet";
+import { ChartTooltip, TipBody, useChartTip } from "@/components/charts/chart-kit";
 import { cn } from "@/lib/utils";
 import { translateCategoryName } from "@/lib/i18n-data";
 import type { Locale } from "@/i18n/routing";
@@ -15,15 +18,21 @@ interface Props {
   totalSpent: number | null;
   /** Share of the period that has passed, 0 to 100. */
   elapsedPercent: number | null;
+  /** The current period, for the category sheet. */
+  period: { from: string; to: string } | null;
 }
 
 // Points of budget used beyond the calendar before a category reads as ahead.
 const OVER_PACE_POINTS = 10;
 
-export function CategorySnapshotCard({ items, totalSpent, elapsedPercent }: Props) {
+export function CategorySnapshotCard({ items, totalSpent, elapsedPercent, period }: Props) {
   const t = useTranslations("home");
+  const tc = useTranslations("charts");
   const tCat = useTranslations("categoriesSeeded");
   const locale = useLocale() as Locale;
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const { containerRef, tip, show, hide } = useChartTip<HTMLDivElement>();
 
   if (items.length === 0) {
     return (
@@ -44,17 +53,40 @@ export function CategorySnapshotCard({ items, totalSpent, elapsedPercent }: Prop
       label={t("whereItWent")}
       action={<CardAction href="/budget">{t("allCategories")}</CardAction>}
     >
-      <div className="mb-4 flex h-3 gap-0.5 overflow-hidden rounded-full" aria-hidden>
-        {items.map((item) => (
-          <i
-            key={item.categoryId}
-            className="block min-w-1"
-            style={{ flexGrow: item.spent, backgroundColor: item.color }}
-          />
-        ))}
-        {rest > total * 0.005 && (
-          <i className="block min-w-1 bg-muted" style={{ flexGrow: rest }} />
-        )}
+      <div ref={containerRef} className="relative mb-4" onMouseLeave={() => { setHovered(null); hide(); }}>
+        <div className="flex h-3 gap-0.5 overflow-hidden rounded-full">
+          {items.map((item) => {
+            const name = translateCategoryName(item.name, tCat);
+            const share = total > 0 ? Math.round((item.spent / total) * 100) : 0;
+            return (
+              <button
+                key={item.categoryId}
+                type="button"
+                className="block min-w-1 cursor-pointer outline-none transition-opacity duration-150 focus-visible:ring-2 focus-visible:ring-ring"
+                style={{ flexGrow: item.spent, backgroundColor: item.color, opacity: hovered !== null && hovered !== item.categoryId ? 0.4 : 1 }}
+                aria-label={`${name}: ${formatWhole(item.spent, locale)}`}
+                onMouseEnter={(e) => {
+                  setHovered(item.categoryId);
+                  show(e.currentTarget, <TipBody title={name} rows={[[tc("spent"), formatWhole(item.spent, locale)], [tc("share"), `${share}%`]]} />);
+                }}
+                onFocus={(e) => show(e.currentTarget, <TipBody title={name} rows={[[tc("spent"), formatWhole(item.spent, locale)], [tc("share"), `${share}%`]]} />)}
+                onBlur={hide}
+                onClick={() => setOpenId(item.categoryId)}
+              />
+            );
+          })}
+          {rest > total * 0.005 && (
+            <i
+              className="block min-w-1 bg-muted"
+              style={{ flexGrow: rest }}
+              onMouseEnter={(e) => {
+                setHovered(-1);
+                show(e.currentTarget, <TipBody title={tc("otherCategories")} rows={[[tc("spent"), formatWhole(rest, locale)], [tc("share"), `${Math.round((rest / total) * 100)}%`]]} />);
+              }}
+            />
+          )}
+        </div>
+        <ChartTooltip tip={tip} />
       </div>
 
       <ul className="flex flex-col divide-y divide-border">
@@ -66,9 +98,15 @@ export function CategorySnapshotCard({ items, totalSpent, elapsedPercent }: Prop
             total={total}
             elapsedPercent={elapsedPercent}
             locale={locale}
+            highlighted={hovered === item.categoryId}
+            onOpen={() => setOpenId(item.categoryId)}
+            onHover={(on) => setHovered(on ? item.categoryId : null)}
           />
         ))}
       </ul>
+      {period ? (
+        <BudgetDetailSheet categoryId={openId} from={period.from} to={period.to} onClose={() => setOpenId(null)} />
+      ) : null}
     </CardShell>
   );
 }
@@ -79,12 +117,18 @@ function Row({
   total,
   elapsedPercent,
   locale,
+  highlighted,
+  onOpen,
+  onHover,
 }: {
   item: HomeCategorySnapshotItem;
   name: string;
   total: number;
   elapsedPercent: number | null;
   locale: Locale;
+  highlighted: boolean;
+  onOpen: () => void;
+  onHover: (on: boolean) => void;
 }) {
   const t = useTranslations("home");
   const Icon = categoryIconFor(item.icon);
@@ -97,7 +141,23 @@ function Row({
   const fill = Math.min(100, hasBudget ? item.percentSpent : share);
 
   return (
-    <li className="grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 py-2.5 sm:grid-cols-[30px_minmax(0,1fr)_minmax(70px,34%)_auto]">
+    <li
+      className={cn(
+        "-mx-2 grid cursor-pointer grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-lg px-2 py-2.5 outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring sm:grid-cols-[30px_minmax(0,1fr)_minmax(70px,34%)_auto]",
+        highlighted && "bg-muted/50"
+      )}
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+    >
       <span
         className="row-span-2 grid size-[30px] place-items-center rounded-[9px] sm:row-span-1"
         style={{ backgroundColor: tintFor(item.color) }}

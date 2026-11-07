@@ -148,7 +148,9 @@
     "bankTxnCount": "{count, plural, one {# transaction} other {# transactions}}",
     "needsYou": "Needs you",
     "spentSinceDate": "Spent since {date}",
-    "lastPayCycle": "your last pay cycle"
+    "lastPayCycle": "your last pay cycle",
+    "trendExpandedHint": "Hover a month for its figures; click one to see its transactions.",
+    "paceTipTitle": "Day {day} of {total}"
   },
   "syncPill": {
     "noBanksConnected": "No banks connected",
@@ -369,7 +371,13 @@
       "quarterly": "Every quarter",
       "annual": "Every year"
     },
-    "trackedToast": "Tracking {merchant}: {cadence}. See it in Insights."
+    "trackedToast": "Tracking {merchant}: {cadence}. See it in Insights.",
+    "historyRefundedShort": "Refunded",
+    "historyRefunded": "Refunded on {date}: the card credited the {amount} purchase back, so the remaining payments are canceled out and nothing more is owed.",
+    "historyPaymentsShort": "Payments",
+    "applyToMerchantPrompt": "{count, plural, one {One other transaction from {merchant} has a different category.} other {# other transactions from {merchant} have a different category.}} Set {category} on them too?",
+    "applyToMerchantAction": "{count, plural, one {Apply to it} other {Apply to all #}}",
+    "applyToMerchantDone": "{count, plural, one {Updated one more transaction from {merchant}} other {Updated # more transactions from {merchant}}}"
   },
   "dashboard": {
     "syncing": "Syncing…",
@@ -1041,7 +1049,17 @@
       "under_budgets": "On track: about {amount} under your budgets.",
       "under_typical": "About {amount} below a typical period.",
       "how": "The range comes from how the rest of your last {count} periods went, adjusted to this period's pace, plus the recurring charges and installments still due.",
-      "howThin": "With little history, the range is a straight-line estimate from this period's pace."
+      "howThin": "With little history, the range is a straight-line estimate from this period's pace.",
+      "expandedHint": "This period's likely range next to how your past periods ended, and the recurring charges still due.",
+      "amount": "Amount",
+      "likelyTotal": "Likely total",
+      "low": "Low",
+      "mid": "Most likely",
+      "high": "High",
+      "total": "Total",
+      "historyTitle": "Past periods and this one",
+      "dueTitle": "Recurring charges still due this period",
+      "dueNone": "Nothing recurring is left this period."
     },
     "committed": {
       "label": "Already committed",
@@ -1051,7 +1069,12 @@
       "installments": "Installments",
       "recurring": "Recurring charges",
       "planLine": "{amount} a month · ends {end}",
-      "noPlans": "No installment plans running."
+      "noPlans": "No installment plans running.",
+      "total": "Total",
+      "clickHint": "Click a month for details",
+      "inPeriod": "Committed in {month}",
+      "close": "Close details",
+      "paymentsLeft": "{count, plural, =0 {last payment} one {# left after} other {# left after}}"
     },
     "feed": {
       "label": "Worth a look",
@@ -1279,5 +1302,19 @@
       "quarterly": "Quarterly",
       "annual": "Yearly"
     }
+  },
+  "charts": {
+    "expand": "Expand {chart}",
+    "expandHint": "Click for a larger view",
+    "spent": "Spent",
+    "amount": "Amount",
+    "share": "Share",
+    "budget": "Budget",
+    "vsAverage": "vs average",
+    "onPaceFor": "On pace for",
+    "expectedByToday": "Even pace by today",
+    "period": "Period",
+    "showTransactions": "Transactions",
+    "otherCategories": "Other categories"
   }
 }

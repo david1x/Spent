@@ -9,6 +9,7 @@ import type {
 import { BANK_PROVIDERS } from "@/lib/types";
 import { type Period, shiftPeriod, toISODay } from "@/lib/period";
 import { addDays, addMonths, daysBetween } from "./math";
+import { normalizeMerchant } from "./merchant";
 
 /** A purchase still being paid in monthly installments. */
 export interface ActivePlan {
@@ -27,6 +28,7 @@ export interface ActivePlan {
  */
 export function activePlans(rows: InsightRow[]): ActivePlan[] {
   const groups = new Map<string, InsightRow[]>();
+  const refunds = rows.filter((r) => r.isInstallment && r.amount > 0);
   for (const r of rows) {
     if (!r.isInstallment || !r.installmentTotal || r.installmentTotal < 2 || r.amount >= 0) continue;
     const key = [r.credentialId, r.accountNumber, r.description, r.originalAmount, r.installmentTotal].join("|");
@@ -40,6 +42,7 @@ export function activePlans(rows: InsightRow[]): ActivePlan[] {
     const total = g[0].installmentTotal as number;
     const paid = Math.max(g.length, ...g.map((r) => r.installmentNumber ?? 0));
     if (paid >= total) continue;
+    if (refundOf(g[0], refunds)) continue;
     const last = g[g.length - 1];
     const payments = [];
     for (let k = 1; k <= total - paid; k++) {
@@ -55,6 +58,29 @@ export function activePlans(rows: InsightRow[]): ActivePlan[] {
     });
   }
   return plans;
+}
+
+/**
+ * The card's credit for a returned installment purchase: same card and plan
+ * length, the purchase amount with the opposite sign, and the merchant name
+ * with a prefix such as "תיקון" (correction). The credits mirror the
+ * payments, so nothing more is owed.
+ */
+export function refundOf(purchase: InsightRow, refunds: InsightRow[]): InsightRow | null {
+  const key = normalizeMerchant(purchase.description);
+  return (
+    refunds.find(
+      (r) =>
+        r.credentialId === purchase.credentialId &&
+        r.accountNumber === purchase.accountNumber &&
+        r.originalAmount === -purchase.originalAmount &&
+        (r.installmentTotal === null || r.installmentTotal === purchase.installmentTotal) &&
+        (() => {
+          const k = normalizeMerchant(r.description);
+          return k.includes(key) || key.includes(k);
+        })()
+    ) ?? null
+  );
 }
 
 const STEP_DAYS: Record<RecurringSeries["cadence"], number> = {
@@ -118,8 +144,12 @@ export function committedPeriods(
       planRows.push({ merchant: plan.merchant, amount: round2(amount), remaining: plan.total - lastDue, endsOn: plan.endsOn });
     }
     let rec = 0;
+    const items: CommittedPeriod["items"] = [];
     for (const s of recurring) {
-      rec += projectSeries(s, to).filter((d) => d >= from).length * s.typical;
+      for (const d of projectSeries(s, to).filter((x) => x >= from)) {
+        rec += s.typical;
+        items.push({ merchant: s.merchant, amount: s.typical, date: d, variable: s.variable });
+      }
     }
     out.push({
       periodStart: from,
@@ -127,6 +157,7 @@ export function committedPeriods(
       installments: round2(installments),
       recurring: round2(rec),
       plans: planRows.sort((a, b) => b.amount - a.amount),
+      items: items.sort((a, b) => b.amount - a.amount),
     });
   }
   return out;

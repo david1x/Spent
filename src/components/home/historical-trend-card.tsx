@@ -1,8 +1,13 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import type { Locale } from "@/i18n/routing";
 import type { HomeHistoricalTrendPoint } from "@/lib/types";
+import { ChartTooltip, ExpandableChart, TipBody, useChartTip } from "@/components/charts/chart-kit";
+import { cn } from "@/lib/utils";
 import { CardShell } from "./card-shell";
 import { formatK, formatMonthName, formatWhole } from "./home-format";
 import { useElementWidth } from "./use-element-width";
@@ -16,12 +21,16 @@ interface Props {
 }
 
 const HEIGHT = 210;
+const EXPANDED_HEIGHT = 320;
 const PAD = { left: 34, right: 6, top: 18, bottom: 26 };
+
+function transactionsHref(d: HomeHistoricalTrendPoint): string {
+  return `/transactions?from=${d.from}&to=${d.to}`;
+}
 
 export function HistoricalTrendCard({ data, budget, projected }: Props) {
   const t = useTranslations("home");
   const locale = useLocale() as Locale;
-  const [wrapRef, width] = useElementWidth<HTMLDivElement>();
   const hasData = data.some((d) => d.total > 0);
 
   const past = data.filter((d) => !d.isCurrent && d.total > 0);
@@ -56,20 +65,14 @@ export function HistoricalTrendCard({ data, budget, projected }: Props) {
             </span>
           </div>
 
-          <div ref={wrapRef} className="mt-auto w-full" dir="ltr" style={{ minHeight: HEIGHT }}>
-            {width > 0 && (
-              <Chart
-                data={data}
-                width={width}
-                budget={budget}
-                forecast={forecast}
-                locale={locale}
-                ariaLabel={t("trendChartLabel", {
-                  average: average != null ? formatWhole(average, locale) : "",
-                })}
-              />
-            )}
-          </div>
+          <ExpandableChart
+            className="mt-auto"
+            title={t("last8Months")}
+            description={t("trendExpandedHint")}
+            expanded={<ExpandedTrend data={data} budget={budget} forecast={forecast} average={average} />}
+          >
+            <InteractiveChart data={data} budget={budget} forecast={forecast} average={average} height={HEIGHT} />
+          </ExpandableChart>
 
           {(budget > 0 || forecast != null) && (
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-muted-foreground">
@@ -93,23 +96,165 @@ export function HistoricalTrendCard({ data, budget, projected }: Props) {
   );
 }
 
+/** The bar chart with hover tooltips; `onSelect` makes bars clickable. */
+function InteractiveChart({
+  data,
+  budget,
+  forecast,
+  average,
+  height,
+  onSelect,
+}: {
+  data: HomeHistoricalTrendPoint[];
+  budget: number;
+  forecast: number | null;
+  average: number | null;
+  height: number;
+  onSelect?: (d: HomeHistoricalTrendPoint) => void;
+}) {
+  const t = useTranslations("home");
+  const tc = useTranslations("charts");
+  const locale = useLocale() as Locale;
+  const [wrapRef, width] = useElementWidth<HTMLDivElement>();
+  const { containerRef, tip, show, hide } = useChartTip<HTMLDivElement>();
+  const [active, setActive] = useState<number | null>(null);
+  const average_ = average;
+
+  const tipFor = (d: HomeHistoricalTrendPoint) => {
+    const rows: Array<[string, string]> = [[tc("spent"), formatWhole(d.total, locale)]];
+    if (average_ != null && average_ > 0 && d.total > 0) {
+      const diff = d.total / average_ - 1;
+      rows.push([tc("vsAverage"), `${diff >= 0 ? "+" : "−"}${Math.abs(Math.round(diff * 100))}%`]);
+    }
+    if (budget > 0) rows.push([tc("budget"), formatWhole(budget, locale)]);
+    if (d.isCurrent && forecast != null) rows.push([tc("onPaceFor"), `~${formatWhole(forecast, locale)}`]);
+    return <TipBody title={formatMonthName(d.month, locale)} rows={rows} />;
+  };
+
+  return (
+    <div
+      ref={(el) => {
+        wrapRef.current = el;
+        containerRef.current = el;
+      }}
+      className="relative w-full"
+      dir="ltr"
+      style={{ minHeight: height }}
+      onMouseLeave={() => {
+        setActive(null);
+        hide();
+      }}
+    >
+      {width > 0 && (
+        <Chart
+          data={data}
+          width={width}
+          height={height}
+          budget={budget}
+          forecast={forecast}
+          locale={locale}
+          active={active}
+          ariaLabel={t("trendChartLabel", { average: average != null ? formatWhole(average, locale) : "" })}
+          onHover={(i, el) => {
+            setActive(i);
+            if (i === null || !el) hide();
+            else show(el, tipFor(data[i]));
+          }}
+          onSelect={onSelect ? (i) => onSelect(data[i]) : undefined}
+        />
+      )}
+      <ChartTooltip tip={tip} width={width} />
+    </div>
+  );
+}
+
+function ExpandedTrend({
+  data,
+  budget,
+  forecast,
+  average,
+}: {
+  data: HomeHistoricalTrendPoint[];
+  budget: number;
+  forecast: number | null;
+  average: number | null;
+}) {
+  const tc = useTranslations("charts");
+  const locale = useLocale() as Locale;
+  const router = useRouter();
+  return (
+    <div className="space-y-5">
+      <InteractiveChart
+        data={data}
+        budget={budget}
+        forecast={forecast}
+        average={average}
+        height={EXPANDED_HEIGHT}
+        onSelect={(d) => router.push(transactionsHref(d))}
+      />
+      <table className="w-full text-[13px]">
+        <thead>
+          <tr className="border-b border-border text-start text-[11px] text-muted-foreground uppercase ltr:tracking-[0.08em]">
+            <th className="py-2 text-start font-semibold">{tc("period")}</th>
+            <th className="py-2 text-end font-semibold">{tc("spent")}</th>
+            <th className="py-2 text-end font-semibold">{tc("vsAverage")}</th>
+            <th className="py-2" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {[...data].reverse().map((d) => {
+            const diff = average && d.total > 0 ? d.total / average - 1 : null;
+            return (
+              <tr key={d.month} className={cn(d.isCurrent && "font-medium")}>
+                <td className="py-2">{formatMonthName(d.month, locale)}</td>
+                <td className="py-2 text-end tabular-nums">
+                  <bdi dir="ltr">{formatWhole(d.total, locale)}</bdi>
+                </td>
+                <td className="py-2 text-end text-muted-foreground tabular-nums">
+                  {diff === null ? "–" : <bdi dir="ltr">{`${diff >= 0 ? "+" : "−"}${Math.abs(Math.round(diff * 100))}%`}</bdi>}
+                </td>
+                <td className="py-2 text-end">
+                  <Link
+                    href={transactionsHref(d)}
+                    className="rounded-sm text-[12.5px] text-muted-foreground underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {tc("showTransactions")}
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Chart({
   data,
   width,
+  height,
   budget,
   forecast,
   locale,
+  active,
   ariaLabel,
+  onHover,
+  onSelect,
 }: {
   data: HomeHistoricalTrendPoint[];
   width: number;
+  height: number;
   budget: number;
   forecast: number | null;
   locale: Locale;
+  active: number | null;
   ariaLabel: string;
+  onHover: (i: number | null, el: Element | null) => void;
+  onSelect?: (i: number) => void;
 }) {
   const plotW = width - PAD.left - PAD.right;
-  const plotH = HEIGHT - PAD.top - PAD.bottom;
+  const plotH = height - PAD.top - PAD.bottom;
   const peak = Math.max(...data.map((d) => d.total), forecast ?? 0, budget);
   const step = niceStep(peak / 3);
   const max = Math.max(step, Math.ceil(peak / step) * step);
@@ -118,13 +263,13 @@ function Chart({
 
   const y = (v: number) => PAD.top + plotH - (v / max) * plotH;
   const slot = plotW / data.length;
-  const bw = Math.min(34, slot * 0.58);
+  const bw = Math.min(height > HEIGHT ? 48 : 34, slot * 0.58);
 
   return (
     <svg
       width={width}
-      height={HEIGHT}
-      viewBox={`0 0 ${width} ${HEIGHT}`}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label={ariaLabel}
       className="block overflow-visible"
@@ -154,11 +299,10 @@ function Chart({
         const cx = PAD.left + slot * i + slot / 2;
         const x = cx - bw / 2;
         const isNow = d.isCurrent;
+        const dim = active !== null && active !== i;
         const label = formatMonthName(d.month, locale, "short");
-        const fullValue = formatWhole(d.total, locale);
         return (
-          <g key={d.month}>
-            <title>{`${formatMonthName(d.month, locale)}: ${fullValue}`}</title>
+          <g key={d.month} className="transition-opacity duration-150" style={{ opacity: dim ? 0.45 : 1 }}>
             {isNow && forecast != null && (
               <>
                 <rect
@@ -189,7 +333,7 @@ function Chart({
                 height={Math.max(1, y(0) - y(d.total))}
                 rx={4}
                 className={
-                  isNow
+                  isNow || active === i
                     ? "fill-primary"
                     : "fill-[color-mix(in_oklch,var(--primary)_30%,var(--muted))]"
                 }
@@ -207,16 +351,41 @@ function Chart({
             )}
             <text
               x={cx}
-              y={HEIGHT - 8}
+              y={height - 8}
               textAnchor="middle"
               className={
-                isNow
+                isNow || active === i
                   ? "fill-foreground text-[11px] font-semibold"
                   : "fill-muted-foreground text-[11px]"
               }
             >
               {label}
             </text>
+            {/* Whole-column hit area: easier to hover than a short bar. */}
+            <rect
+              x={PAD.left + slot * i}
+              y={PAD.top}
+              width={slot}
+              height={plotH}
+              fill="transparent"
+              tabIndex={0}
+              role="button"
+              aria-label={`${formatMonthName(d.month, locale)}: ${formatWhole(d.total, locale)}`}
+              className={cn("outline-none", onSelect && "cursor-pointer")}
+              onMouseEnter={(e) => onHover(i, e.currentTarget)}
+              onFocus={(e) => onHover(i, e.currentTarget)}
+              onBlur={() => onHover(null, null)}
+              onClick={onSelect ? (e) => {
+                e.stopPropagation();
+                onSelect(i);
+              } : undefined}
+              onKeyDown={onSelect ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(i);
+                }
+              } : undefined}
+            />
           </g>
         );
       })}
@@ -227,7 +396,7 @@ function Chart({
           x2={width - PAD.right}
           y1={y(budget)}
           y2={y(budget)}
-          className="stroke-foreground opacity-50"
+          className="pointer-events-none stroke-foreground opacity-50"
           strokeWidth={1.2}
           strokeDasharray="3 4"
         />

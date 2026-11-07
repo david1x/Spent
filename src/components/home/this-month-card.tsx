@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Locale } from "@/i18n/routing";
 import type { HomePaceStatus, HomeThisMonth } from "@/lib/types";
 import { CardShell, CardAction } from "./card-shell";
+import { ChartTooltip, TipBody, useChartTip } from "@/components/charts/chart-kit";
 import {
   AMBER_INK,
   AMBER_SOFT_BG,
@@ -184,11 +185,32 @@ function PaceBar({ data, locale }: { data: HomeThisMonth; locale: Locale }) {
     paceStatus === "on" ? "var(--primary)" : "var(--status-heads-up)";
 
   const layout = useLabelLayout(today);
+  const tc = useTranslations("charts");
+  const { containerRef, tip, show, hide } = useChartTip<HTMLDivElement>();
+  const body = (
+    <TipBody
+      title={t("paceTipTitle", { day: dayOfPeriod, total: periodLength })}
+      rows={[
+        [tc("spent"), formatWhole(spent, locale)],
+        [tc("expectedByToday"), formatWhole(data.expectedByToday, locale)],
+        [tc("budget"), formatWhole(budget, locale)],
+        [tc("onPaceFor"), formatWhole(projected, locale)],
+      ]}
+    />
+  );
 
   return (
-    <div className="mt-6 mb-4">
+    <div ref={containerRef} className="relative mt-6 mb-4">
+      <Link
+        href="/budget"
+        className="block cursor-pointer rounded-full py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onMouseEnter={(e) => show(e.currentTarget, body)}
+        onMouseLeave={hide}
+        onFocus={(e) => show(e.currentTarget, body)}
+        onBlur={hide}
+      >
       <div
-        className="relative h-2.5 rounded-full bg-muted"
+        className="relative h-2.5 rounded-full bg-muted transition-[filter] hover:brightness-95"
         role="img"
         aria-label={t("paceBarLabel", {
           spent: formatWhole(spent, locale),
@@ -212,6 +234,8 @@ function PaceBar({ data, locale }: { data: HomeThisMonth; locale: Locale }) {
           style={{ insetInlineStart: `${today}%` }}
         />
       </div>
+      </Link>
+      <ChartTooltip tip={tip} />
       <div
         ref={layout.containerRef}
         className="relative mt-2 h-5 text-xs text-muted-foreground tabular-nums"

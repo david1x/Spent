@@ -14,6 +14,7 @@ import { formatPeriodLabel, periodContaining, shiftPeriod, type Period } from "@
 import { cn } from "@/lib/utils";
 import { useBudgetPeriod } from "@/components/layout/use-budget-period";
 import { AccountMark } from "./transaction-source-cell";
+import { ChartTooltip, TipBody, useChartTip } from "@/components/charts/chart-kit";
 import { INCOME_INK } from "./summary-strip";
 import type { InstallmentPlan, TransactionHistory, TransactionWithCategory } from "@/lib/types";
 import type { Locale } from "@/i18n/routing";
@@ -171,10 +172,10 @@ function InstallmentSection({
   const money = (n: number) => formatCurrency(n, plan.currency || "ILS", locale);
   const total = plan.total;
   const left = total !== null ? Math.max(0, total - plan.paidCount) : 0;
+  const charged = plan.payments.reduce((sum, p) => sum + Math.abs(p.chargedAmount), 0);
+  // After a refund only the payments on record count; the rest is credited back.
   const paidAmount =
-    total !== null
-      ? Math.max(0, plan.purchaseAmount - plan.remaining)
-      : plan.payments.reduce((sum, p) => sum + Math.abs(p.chargedAmount), 0);
+    total !== null && !plan.refund ? Math.max(0, plan.purchaseAmount - plan.remaining) : charged;
   const pct = plan.purchaseAmount > 0 ? Math.min(100, (paidAmount / plan.purchaseAmount) * 100) : 0;
   const firstKnown = plan.payments.find((p) => (p.installmentNumber ?? 0) > 0)?.installmentNumber ?? 1;
   const lastUpcoming = plan.upcoming[plan.upcoming.length - 1];
@@ -199,9 +200,15 @@ function InstallmentSection({
           <Stat
             label={t("historyLeft")}
             value={money(plan.remaining)}
-            sub={left > 0 ? t("historyPaymentsLeft", { count: left }) : t("historyPaidOff")}
+            sub={plan.refund ? t("historyRefundedShort") : left > 0 ? t("historyPaymentsLeft", { count: left }) : t("historyPaidOff")}
           />
         </div>
+
+        {plan.refund ? (
+          <p className="mt-3 rounded-lg bg-[color-mix(in_oklch,var(--status-on-track)_14%,var(--card))] px-3 py-2 text-[12.5px] text-[color-mix(in_oklch,var(--status-on-track)_45%,var(--foreground))]">
+            {t("historyRefunded", { date: shortDate(plan.refund.date, locale, true), amount: money(plan.refund.amount) })}
+          </p>
+        ) : null}
 
         {total !== null && total <= MAX_SEGMENTS ? (
           <div className="mt-4 flex gap-1" aria-hidden>
@@ -334,6 +341,21 @@ function MerchantSection({ data, t, locale }: { data: TransactionHistory; t: Tra
   const selectedKey = periodContaining(new Date(txn.date), startDay).start.toDateString();
 
   const byKey = new Map(buckets.map((b) => [b.key, b.total]));
+  const countByKey = new Map(buckets.map((b) => [b.key, b.rows.length]));
+  const { containerRef, tip, show, hide } = useChartTip<HTMLDivElement>();
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+  // Clicking a month shows its payments: page far enough, then scroll there.
+  const jumpTo = (key: string) => {
+    let needed = 0;
+    for (const b of buckets) {
+      needed += b.rows.length;
+      if (b.key === key) break;
+    }
+    if (needed > shown) setShown(needed);
+    requestAnimationFrame(() =>
+      document.getElementById(`history-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    );
+  };
   const chart = Array.from({ length: CHART_PERIODS }, (_, i) => {
     const period = shiftPeriod(currentPeriod, i - (CHART_PERIODS - 1), startDay);
     const key = period.start.toDateString();
@@ -367,27 +389,44 @@ function MerchantSection({ data, t, locale }: { data: TransactionHistory; t: Tra
       </div>
 
       {rows.length > 1 ? (
-        <div className="mt-3 rounded-xl border border-border px-4 pt-4 pb-3">
-          <div dir="ltr" className="flex h-24 items-end gap-1" role="img" aria-label={t("historyChartLabel")}>
+        <div ref={containerRef} className="relative mt-3 rounded-xl border border-border px-4 pt-4 pb-3" onMouseLeave={() => { hide(); setHoverKey(null); }}>
+          <div dir="ltr" className="flex h-24 items-end gap-1" role="group" aria-label={t("historyChartLabel")}>
             {chart.map((c) => {
               const h = c.total > 0 ? Math.max(4, (c.total / chartMax) * 100) : 0;
+              const label = formatPeriodLabel(c.period, locale);
+              const count = countByKey.get(c.key) ?? 0;
+              const body = <TipBody title={label} rows={[[t("historyTotal"), money(c.total)], [t("historyPaymentsShort"), String(count)]]} />;
               return (
-                <div key={c.key} className="flex h-full flex-1 flex-col justify-end" title={`${formatPeriodLabel(c.period, locale)}: ${money(c.total)}`}>
+                <button
+                  key={c.key}
+                  type="button"
+                  disabled={c.total === 0}
+                  aria-label={`${label}: ${money(c.total)}`}
+                  className="group flex h-full flex-1 cursor-pointer flex-col justify-end rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+                  onMouseEnter={(e) => {
+                    setHoverKey(c.key);
+                    show(e.currentTarget, body);
+                  }}
+                  onFocus={(e) => show(e.currentTarget, body)}
+                  onBlur={hide}
+                  onClick={() => jumpTo(c.key)}
+                >
                   {c.total > 0 ? (
                     <div
                       className={cn(
-                        "w-full rounded-t-[3px]",
-                        c.key === selectedKey ? "bg-primary" : "bg-primary/35"
+                        "w-full rounded-t-[3px] transition-colors",
+                        c.key === selectedKey || c.key === hoverKey ? "bg-primary" : "bg-primary/35"
                       )}
                       style={{ height: `${h}%` }}
                     />
                   ) : (
                     <div className="h-px w-full bg-border" />
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
+          <ChartTooltip tip={tip} />
           <div dir="ltr" className="mt-1.5 flex gap-1" aria-hidden>
             {chart.map((c, i) => (
               <div
@@ -408,7 +447,7 @@ function MerchantSection({ data, t, locale }: { data: TransactionHistory; t: Tra
 
       <div className="mt-3 space-y-4">
         {listed.map((b) => (
-          <div key={b.key}>
+          <div key={b.key} id={`history-${b.key}`} className="scroll-mt-4">
             <div className="mb-1 flex items-baseline justify-between gap-3 px-1 text-xs">
               <span className="font-semibold">{formatPeriodLabel(b.period, locale)}</span>
               <span className="text-muted-foreground tabular-nums">

@@ -82,7 +82,9 @@ export function getHistoricalTrend(
   }
 
   const stmt = db.prepare(
-    `SELECT COALESCE(SUM(ABS(charged_amount)), 0) as total
+    // Money out only, like every other spending total: a refund (a positive
+    // row) must not add to what was spent.
+    `SELECT COALESCE(SUM(CASE WHEN charged_amount < 0 THEN -charged_amount ELSE 0 END), 0) as total
      FROM transactions
      WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
        AND status = 'completed' AND kind = 'expense' AND ${countedSql()}`
@@ -95,6 +97,8 @@ export function getHistoricalTrend(
       label: m.label,
       total: row.total,
       isCurrent: m.key === currentMonthKey,
+      from: m.from,
+      to: m.to,
     };
   });
 }

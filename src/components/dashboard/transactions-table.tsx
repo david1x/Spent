@@ -186,6 +186,10 @@ export function TransactionsTable({
 
   const categoriesFor = (txn: TransactionWithCategory): Category[] =>
     txn.chargedAmount > 0 ? incomeCategories : expenseCategories;
+  const categoryNameFor = (id: number): string => {
+    const cat = [...expenseCategories, ...incomeCategories].find((c) => c.id === id);
+    return cat ? translateCategoryName(cat.name, tCat) : "";
+  };
 
   const selectedIdSet = new Set(selection.key === selectionKey ? selection.ids : []);
   const selectedRows = transactions.filter((r) => selectedIdSet.has(r.id));
@@ -239,7 +243,26 @@ export function TransactionsTable({
         })
         .catch(() => toast.error(t("actionFailed"))),
     changeCategory: (txn, categoryId) =>
-      void runRowAction(txn.id, () => updateTransactionCategory(txn.id, categoryId)),
+      void (async () => {
+        let others = 0;
+        const ok = await runRowAction(txn.id, async () => {
+          const res = await updateTransactionCategory(txn.id, categoryId);
+          others = res.sameMerchantCount ?? 0;
+        });
+        if (!ok || others === 0) return;
+        const name = categoryNameFor(categoryId);
+        toast(t("applyToMerchantPrompt", { count: others, merchant: txn.description, category: name }), {
+          duration: 10_000,
+          action: {
+            label: t("applyToMerchantAction", { count: others }),
+            onClick: () =>
+              void runRowAction(txn.id, async () => {
+                const res = await updateTransactionCategory(txn.id, categoryId, true);
+                toast.success(t("applyToMerchantDone", { count: res.applied, merchant: txn.description }));
+              }),
+          },
+        });
+      })(),
     approve: (txn) =>
       void runRowAction(txn.id, () => approveTransactionCategory(txn.id)),
     changeKind: (txn, kind) =>

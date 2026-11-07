@@ -143,6 +143,9 @@ export function computeForecast(
     targetSource: resolvedTarget?.source ?? null,
     typical,
     cyclesUsed: remainders.length,
+    history: past
+      .map((p, i) => ({ periodStart: p.from, periodEnd: p.to, total: round(totals[i] ?? 0) }))
+      .reverse(),
   };
 }
 

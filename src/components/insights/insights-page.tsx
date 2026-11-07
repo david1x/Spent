@@ -67,7 +67,7 @@ export function InsightsPage() {
               </p>
             ) : null}
             <div className={`${ROW} lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]`}>
-              {data.forecast ? <ForecastCard data={data.forecast} /> : null}
+              {data.forecast ? <ForecastCard data={data.forecast} upcoming={data.upcoming} /> : null}
               <div id="committed" className="min-w-0 scroll-mt-24">
                 <CommittedCard periods={data.committed} />
               </div>

@@ -70,6 +70,8 @@ export interface InstallmentPlan {
   upcoming: Array<{ number: number; date: string; amount: number }>;
   /** What is still to be charged, as a positive number. */
   remaining: number;
+  /** The card credited the purchase back (a return). Nothing more is owed. */
+  refund: { date: string; amount: number; transactionId: number } | null;
 }
 
 /** Everything the payment history sheet shows for one transaction. */
@@ -278,6 +280,9 @@ export interface HomeHistoricalTrendPoint {
   label: string;
   total: number;
   isCurrent: boolean;
+  /** The period's first and last day (YYYY-MM-DD), for links to its transactions. */
+  from: string;
+  to: string;
 }
 
 export interface HomeRecentTransaction {

@@ -148,7 +148,9 @@
     "bankTxnCount": "{count, plural, one {עסקה אחת} other {# עסקאות}}",
     "needsYou": "דורש טיפול",
     "spentSinceDate": "הוצאות מאז {date}",
-    "lastPayCycle": "מחזור השכר הקודם"
+    "lastPayCycle": "מחזור השכר הקודם",
+    "trendExpandedHint": "העבירו את העכבר על חודש כדי לראות את הנתונים; לחיצה מציגה את העסקאות שלו.",
+    "paceTipTitle": "יום {day} מתוך {total}"
   },
   "syncPill": {
     "noBanksConnected": "לא חוברו בנקים",
@@ -369,7 +371,13 @@
       "quarterly": "כל רבעון",
       "annual": "כל שנה"
     },
-    "trackedToast": "{merchant} במעקב: {cadence}. אפשר לראות אותו בתובנות."
+    "trackedToast": "{merchant} במעקב: {cadence}. אפשר לראות אותו בתובנות.",
+    "historyRefundedShort": "זוכה",
+    "historyRefunded": "זוכה ב־{date}: הכרטיס זיכה את העסקה של {amount}, כך שהתשלומים הנותרים מתקזזים ואין יותר מה לשלם.",
+    "historyPaymentsShort": "תשלומים",
+    "applyToMerchantPrompt": "{count, plural, one {לעסקה נוספת אחת מ־{merchant} יש קטגוריה אחרת.} other {ל־# עסקאות נוספות מ־{merchant} יש קטגוריה אחרת.}} לקבוע גם להן {category}?",
+    "applyToMerchantAction": "{count, plural, one {החלה עליה} other {החלה על כל ה־#}}",
+    "applyToMerchantDone": "{count, plural, one {עודכנה עוד עסקה אחת מ־{merchant}} other {עודכנו עוד # עסקאות מ־{merchant}}}"
   },
   "dashboard": {
     "syncing": "מסנכרן…",
@@ -1041,7 +1049,17 @@
       "under_budgets": "במסלול: כ־{amount} מתחת לתקציבים.",
       "under_typical": "כ־{amount} מתחת לתקופה רגילה.",
       "how": "הטווח מחושב לפי איך נגמרו {count} התקופות האחרונות, מותאם לקצב של התקופה הזו, ובתוספת החיובים הקבועים והתשלומים שעוד צפויים.",
-      "howThin": "כשיש מעט היסטוריה, הטווח הוא הערכה לפי הקצב של התקופה הזו."
+      "howThin": "כשיש מעט היסטוריה, הטווח הוא הערכה לפי הקצב של התקופה הזו.",
+      "expandedHint": "הטווח הסביר של התקופה הזו לצד איך נגמרו התקופות הקודמות, והחיובים הקבועים שעוד צפויים.",
+      "amount": "סכום",
+      "likelyTotal": "סך משוער",
+      "low": "נמוך",
+      "mid": "הכי סביר",
+      "high": "גבוה",
+      "total": "סה״כ",
+      "historyTitle": "תקופות קודמות והתקופה הזו",
+      "dueTitle": "חיובים קבועים שעוד צפויים בתקופה הזו",
+      "dueNone": "לא נשארו חיובים קבועים בתקופה הזו."
     },
     "committed": {
       "label": "כבר מחויב",
@@ -1051,7 +1069,12 @@
       "installments": "תשלומים",
       "recurring": "חיובים קבועים",
       "planLine": "{amount} בחודש · עד {end}",
-      "noPlans": "אין עסקאות בתשלומים פעילות."
+      "noPlans": "אין עסקאות בתשלומים פעילות.",
+      "total": "סה״כ",
+      "clickHint": "לחיצה על חודש לפירוט",
+      "inPeriod": "מחויב ב{month}",
+      "close": "סגירת הפירוט",
+      "paymentsLeft": "{count, plural, =0 {תשלום אחרון} one {נשאר אחד אחריו} other {נשארו # אחריו}}"
     },
     "feed": {
       "label": "שווה בדיקה",
@@ -1279,5 +1302,19 @@
       "quarterly": "רבעוני",
       "annual": "שנתי"
     }
+  },
+  "charts": {
+    "expand": "הגדלת {chart}",
+    "expandHint": "לחיצה לתצוגה גדולה",
+    "spent": "הוצאות",
+    "amount": "סכום",
+    "share": "חלק",
+    "budget": "תקציב",
+    "vsAverage": "לעומת הממוצע",
+    "onPaceFor": "בקצב הזה",
+    "expectedByToday": "קצב אחיד עד היום",
+    "period": "תקופה",
+    "showTransactions": "עסקאות",
+    "otherCategories": "קטגוריות אחרות"
   }
 }

@@ -844,7 +844,33 @@ function getInstallmentPlan(
   workspaceId: number,
   txn: TransactionWithCategory
 ): InstallmentPlan | null {
-  const payments = getDb()
+  const db = getDb();
+  // Opened from either side: the purchase (money out) or its refund (money in).
+  const purchaseOriginal = txn.chargedAmount < 0 ? txn.originalAmount : -txn.originalAmount;
+  const refundRow = db
+    .prepare(
+      `${TRANSACTION_LIST_SELECT}
+       WHERE t.workspace_id = ? AND t.type = 'installments' AND t.credential_id IS ?
+         AND t.account_number = ? AND t.original_amount = ? AND t.charged_amount > 0
+         AND (t.installment_total IS ? OR ? IS NULL OR t.installment_total IS NULL)
+       ORDER BY t.date ASC LIMIT 1`
+    )
+    .get(workspaceId, txn.credentialId, txn.accountNumber, -purchaseOriginal, txn.installmentTotal, txn.installmentTotal);
+  const refund = refundRow ? mapTransactionRow(refundRow) : null;
+  let description = txn.description;
+  if (txn.chargedAmount > 0) {
+    const purchase = db
+      .prepare(
+        `SELECT description FROM transactions
+         WHERE workspace_id = ? AND type = 'installments' AND credential_id IS ? AND account_number = ?
+           AND original_amount = ? AND charged_amount < 0
+         ORDER BY date ASC LIMIT 1`
+      )
+      .get(workspaceId, txn.credentialId, txn.accountNumber, purchaseOriginal) as { description: string } | undefined;
+    if (!purchase) return null;
+    description = purchase.description;
+  }
+  const payments = db
     .prepare(
       `${TRANSACTION_LIST_SELECT}
        WHERE t.workspace_id = ?
@@ -860,8 +886,8 @@ function getInstallmentPlan(
       workspaceId,
       txn.credentialId,
       txn.accountNumber,
-      txn.description,
-      txn.originalAmount,
+      description,
+      purchaseOriginal,
       txn.installmentTotal,
       txn.installmentTotal
     )
@@ -878,12 +904,12 @@ function getInstallmentPlan(
     payments.length,
     ...numbered.map((p) => p.installmentNumber as number)
   );
-  const purchaseAmount = Math.abs(txn.originalAmount);
+  const purchaseAmount = Math.abs(purchaseOriginal);
   const perPayment = Math.abs(last.chargedAmount);
 
   const upcoming: InstallmentPlan["upcoming"] = [];
   let remaining = 0;
-  if (total !== null && paidCount < total && perPayment > 0) {
+  if (!refund && total !== null && paidCount < total && perPayment > 0) {
     const left = total - paidCount;
     // The first installment usually absorbs the rounding, so the rest of the
     // purchase is the better guess when it is in the right range.
@@ -911,6 +937,9 @@ function getInstallmentPlan(
     payments,
     upcoming,
     remaining: Math.round(remaining * 100) / 100,
+    refund: refund
+      ? { date: refund.date, amount: Math.abs(refund.originalAmount), transactionId: refund.id }
+      : null,
   };
 }
 

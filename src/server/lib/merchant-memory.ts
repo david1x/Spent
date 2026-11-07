@@ -12,6 +12,39 @@ export function normalizeMerchant(description: string): string {
     .trim();
 }
 
+/**
+ * Other transactions from the same merchant as `id`: same normalized name
+ * and the same direction (a refund is not a purchase). Transfers are left
+ * out. `differentFrom` keeps only rows not already in that category.
+ */
+export function sameMerchantTransactionIds(
+  workspaceId: number,
+  id: number,
+  differentFrom?: number
+): number[] {
+  const db = getDb();
+  const base = db
+    .prepare("SELECT description, charged_amount FROM transactions WHERE workspace_id = ? AND id = ?")
+    .get(workspaceId, id) as { description: string; charged_amount: number } | undefined;
+  if (!base) return [];
+  const key = normalizeMerchant(base.description);
+  const outgoing = base.charged_amount < 0;
+  const rows = db
+    .prepare(
+      `SELECT id, description, charged_amount, category_id FROM transactions
+       WHERE workspace_id = ? AND id != ? AND kind != 'transfer'`
+    )
+    .all(workspaceId, id) as Array<{ id: number; description: string; charged_amount: number; category_id: number | null }>;
+  return rows
+    .filter(
+      (r) =>
+        r.charged_amount < 0 === outgoing &&
+        (differentFrom === undefined || r.category_id !== differentFrom) &&
+        normalizeMerchant(r.description) === key
+    )
+    .map((r) => r.id);
+}
+
 export interface MerchantMapping {
   merchantKey: string;
   categoryId: number;
