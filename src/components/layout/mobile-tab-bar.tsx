@@ -18,7 +18,7 @@ export function MobileTabBar() {
       aria-label={t("primaryNav")}
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-card/85 md:hidden"
     >
-      <ul className="mx-auto grid max-w-lg grid-cols-4 px-1.5 pt-1">
+      <ul className="mx-auto grid max-w-lg grid-cols-5 px-1.5 pt-1">
         {NAV_ITEMS.map((item) => {
           const active = item.match(pathname);
           const label = t(item.labelKey);

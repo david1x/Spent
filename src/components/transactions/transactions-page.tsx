@@ -14,7 +14,7 @@ import {
   type RangePreset,
 } from "./range-selector";
 import { AINotConnectedBanner } from "@/components/ai-not-connected-banner";
-import { SummaryStrip } from "./summary-strip";
+import { ReviewBanner, SummaryStrip } from "./summary-strip";
 import {
   TransactionsToolbar,
   type TransactionSegment,
@@ -45,20 +45,37 @@ import type { Locale } from "@/i18n/routing";
 import { useAmountsHidden } from "@/components/layout/amounts-toggle";
 import { useBudgetPeriod } from "@/components/layout/use-budget-period";
 
-export function TransactionsPage() {
+/** Filters a link can open the page with. A search alone shows all time. */
+export interface TransactionsInitialFilters {
+  search?: string;
+  from?: string;
+  to?: string;
+  categoryId?: number;
+  /** Open on the review queue. */
+  review?: boolean;
+}
+
+export function TransactionsPage({ initial }: { initial?: TransactionsInitialFilters } = {}) {
   // Re-render everything below when "Hide amounts" flips; the formatters read it.
   useAmountsHidden();
   const t = useTranslations("transactions");
   const locale = useLocale() as Locale;
   // The range ends with the budget period holding `anchor`; arrows move it.
   const [anchor, setAnchor] = useState(new Date());
-  const [preset, setPreset] = useState<RangePreset>("month");
-  const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
-  const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<number[]>([]);
+  const linkedRange = initial?.from && initial.to ? { from: initial.from, to: initial.to } : null;
+  const [preset, setPreset] = useState<RangePreset>(
+    linkedRange ? "custom" : initial?.search ? "all" : "month"
+  );
+  const [custom, setCustom] = useState<{ from: string; to: string } | null>(linkedRange);
+  const [search, setSearch] = useState(initial?.search ?? "");
+  const [categoryFilter, setCategoryFilter] = useState<number[]>(
+    initial?.categoryId ? [initial.categoryId] : []
+  );
   // "12" is a whole login, "12:4321" one card under it.
   const [accountFilter, setAccountFilter] = useState<string[]>([]);
   const [page, setPage] = useState(0);
+  // The review queue spans every date, so it ignores the range while open.
+  const [reviewOnly, setReviewOnly] = useState(initial?.review === true);
   const [segment, setSegment] = useState<TransactionSegment>("all");
   const [sortField, setSortField] = useState<TransactionSortField>("date");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
@@ -89,11 +106,14 @@ export function TransactionsPage() {
   const allCategories = allCategoriesQuery.data ?? [];
   const expandedCategoryIds = expandCategoryFilterIds(categoryFilter, allCategories);
 
+  const listFrom = reviewOnly ? undefined : from;
+  const listTo = reviewOnly ? undefined : to;
   const transactionsQuery = useQuery({
     queryKey: [
       "transactions",
-      from,
-      to,
+      listFrom,
+      listTo,
+      reviewOnly,
       search,
       categoryFilter,
       accountFilter,
@@ -104,8 +124,9 @@ export function TransactionsPage() {
     ],
     queryFn: () =>
       getTransactions({
-        from,
-        to,
+        from: listFrom,
+        to: listTo,
+        review: reviewOnly || undefined,
         search: search.trim() || undefined,
         categoryIds: expandedCategoryIds,
         accounts: accountFilter.length > 0 ? accountFilter : undefined,
@@ -138,6 +159,7 @@ export function TransactionsPage() {
   const selectionKey = JSON.stringify([
     from,
     to,
+    reviewOnly,
     search,
     categoryFilter,
     accountFilter,
@@ -221,11 +243,27 @@ export function TransactionsPage() {
           counts={aggregates?.counts}
         />
 
-        <SummaryStrip
-          aggregates={aggregates}
-          loading={tableInitialLoading}
-          pendingReviewCount={summaryQuery.data?.pendingReviewCount ?? 0}
-        />
+        {reviewOnly ? (
+          <ReviewBanner
+            count={summaryQuery.data?.pendingReviewCount ?? transactionsQuery.data?.total ?? 0}
+            uncategorizedCount={summaryQuery.data?.uncategorizedCount ?? 0}
+            onDone={() => {
+              setReviewOnly(false);
+              setPage(0);
+            }}
+          />
+        ) : (
+          <SummaryStrip
+            aggregates={aggregates}
+            loading={tableInitialLoading}
+            pendingReviewCount={summaryQuery.data?.pendingReviewCount ?? 0}
+            uncategorizedCount={summaryQuery.data?.uncategorizedCount ?? 0}
+            onOpenReview={() => {
+              setReviewOnly(true);
+              setPage(0);
+            }}
+          />
+        )}
 
         <TransactionsTable
           transactions={transactionsQuery.data?.transactions ?? []}

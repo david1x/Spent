@@ -23,6 +23,26 @@ export class OllamaProvider implements AIProvider {
     private model: string
   ) {}
 
+  async complete(system: string, prompt: string): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: this.model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt },
+        ],
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok) throw new Error(`Ollama request failed: ${response.status}`);
+    const data = (await response.json()) as { message?: { content?: string } };
+    // Reasoning models wrap their thinking in <think> tags; only the answer is shown.
+    return (data.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  }
+
   async categorize(
     transactions: TransactionForCategorization[],
     categories: CategoryForCategorization[],

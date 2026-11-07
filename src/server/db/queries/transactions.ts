@@ -221,6 +221,8 @@ interface QueryParams {
   accounts?: string[];
   /** Also return per-segment counts, totals and per-day totals. */
   withAggregates?: boolean;
+  /** Only the review queue (same rows countReviewQueue counts), any date. */
+  reviewOnly?: boolean;
 }
 
 /**
@@ -327,6 +329,9 @@ export function queryTransactions(
         : undefined;
   appendCredentialIdsFilter(conditions, values, credentialIds, "t.");
   appendAccountKeysFilter(conditions, values, params.accounts, "t.");
+  if (params.reviewOnly) {
+    conditions.push("t.needs_review = 1 AND t.status = 'completed' AND t.is_excluded = 0");
+  }
   // The budget scope (bank bundles) narrows the list like every total.
   conditions.push(scopeSql("t"));
 
@@ -999,6 +1004,8 @@ export interface TransactionsSummary {
   notCounted: { total: number; count: number };
   topMerchants: { description: string; total: number; count: number }[];
   pendingReviewCount: number;
+  /** Rows with no category at all: what AI categorization works on. */
+  uncategorizedCount: number;
 }
 
 export interface TransactionsSummaryParams {
@@ -1128,7 +1135,20 @@ export function getTransactionsSummary(
     // The review queue isn't scoped to a month or account: Home and
     // Transactions must show the same number.
     pendingReviewCount: countReviewQueue(workspaceId),
+    uncategorizedCount: countUncategorized(workspaceId),
   };
+}
+
+/** Rows AI categorization would pick up. Workspace-wide like the review queue. */
+export function countUncategorized(workspaceId: number): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) as count FROM transactions
+       WHERE workspace_id = ? AND category_id IS NULL AND kind != 'transfer'
+         AND status = 'completed' AND is_excluded = 0`
+    )
+    .get(workspaceId) as { count: number };
+  return row.count;
 }
 
 /** Transactions waiting in the review queue. Single source for every badge. */

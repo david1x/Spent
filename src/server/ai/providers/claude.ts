@@ -18,11 +18,27 @@ function parseConfidence(raw: unknown): number | undefined {
   return clamped;
 }
 
+/** One model for every Spent call; change it here to upgrade (see CLAUDE.md). */
+const MODEL = "claude-haiku-4-5-20251001";
+
 export class ClaudeProvider implements AIProvider {
   private client: Anthropic;
 
   constructor(apiKey: string) {
     this.client = new Anthropic({ apiKey });
+  }
+
+  async complete(system: string, prompt: string, options?: { maxTokens?: number }): Promise<string> {
+    const response = await this.client.messages.create({
+      model: MODEL,
+      max_tokens: options?.maxTokens ?? 700,
+      system,
+      messages: [{ role: "user", content: prompt }],
+    });
+    return response.content
+      .map((block) => (block.type === "text" ? block.text : ""))
+      .join("")
+      .trim();
   }
 
   async categorize(
@@ -40,7 +56,7 @@ export class ClaudeProvider implements AIProvider {
     );
 
     const response = await this.client.messages.create({
-      model: "claude-haiku-4-5-20251001",
+      model: MODEL,
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: prompt }],

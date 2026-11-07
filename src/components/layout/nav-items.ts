@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   LayoutDashboard,
+  Lightbulb,
   Settings as SettingsIcon,
   Wallet,
   type LucideIcon,
@@ -9,7 +10,7 @@ import {
 export interface NavItem {
   href: string;
   /** Key in the `nav` message namespace. */
-  labelKey: "home" | "budget" | "transactions" | "settings";
+  labelKey: "home" | "budget" | "insights" | "transactions" | "settings";
   Icon: LucideIcon;
   match: (pathname: string) => boolean;
   /** Shows the review queue count next to the item. */
@@ -28,6 +29,12 @@ export const NAV_ITEMS: NavItem[] = [
     labelKey: "budget",
     Icon: Wallet,
     match: (p) => p.startsWith("/budget"),
+  },
+  {
+    href: "/insights",
+    labelKey: "insights",
+    Icon: Lightbulb,
+    match: (p) => p.startsWith("/insights"),
   },
   {
     href: "/transactions",

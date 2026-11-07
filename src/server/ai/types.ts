@@ -37,6 +37,8 @@ export interface PastCorrection {
 }
 
 export interface AIProvider {
+  /** Plain-text answer to one prompt (the Insights summary). */
+  complete(system: string, prompt: string, options?: { maxTokens?: number }): Promise<string>;
   categorize(
     transactions: TransactionForCategorization[],
     categories: CategoryForCategorization[],

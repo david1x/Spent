@@ -46,7 +46,8 @@
     "scopeCount": "{count} banks",
     "scopeLabel": "Accounts in totals: {scope}",
     "scopeHint": "Totals cover the banks you pick, plus the cards linked to each one under Settings › Bank accounts.",
-    "scopeLinkedCards": "{count, plural, =0 {No cards linked} one {+ 1 linked card} other {+ # linked cards}}"
+    "scopeLinkedCards": "{count, plural, =0 {No cards linked} one {+ 1 linked card} other {+ # linked cards}}",
+    "insights": "Insights"
   },
   "home": {
     "pageTitle": "Home",
@@ -349,7 +350,26 @@
     "historyError": "Couldn't load this payment's history. Try again.",
     "historyNextBill": "On the next bill",
     "historyMoreExpected": "{count, plural, one {Show # more expected payment} other {Show # more expected payments}}",
-    "amountEstimatedHint": "Estimated in shekels. The card bills this purchase in its own currency and converts it on the charge date."
+    "amountEstimatedHint": "Estimated in shekels. The card bills this purchase in its own currency and converts it on the charge date.",
+    "uncategorizedPill": "{count, plural, one {Categorize # with AI} other {Categorize # with AI}}",
+    "reviewTitle": "{count, plural, one {# transaction to review} other {# transactions to review}}",
+    "reviewExplain": "The AI picked these categories but wasn't sure. Approve the ones that are right, or click a category to change it. This list covers all dates.",
+    "reviewAllDone": "All reviewed",
+    "reviewAllDoneExplain": "Nothing is waiting for a check. New syncs add rows here when the AI isn't sure.",
+    "reviewApproveAll": "{count, plural, one {Approve it} other {Approve all #}}",
+    "reviewApprovedAll": "{count, plural, one {Approved # transaction} other {Approved # transactions}}",
+    "reviewDone": "Done",
+    "rowLooksRight": "Looks right",
+    "rowApproveLabel": "Keep the category for {merchant}",
+    "trackSubscription": "Track as subscription",
+    "trackCadence": {
+      "weekly": "Every week",
+      "monthly": "Every month",
+      "bimonthly": "Every two months",
+      "quarterly": "Every quarter",
+      "annual": "Every year"
+    },
+    "trackedToast": "Tracking {merchant}: {cadence}. See it in Insights."
   },
   "dashboard": {
     "syncing": "Syncing…",
@@ -985,5 +1005,279 @@
     "applied": "{count, plural, one {Applied to # transaction} other {Applied to # transactions}}",
     "appliedWithNew": "{count, plural, one {Applied to # transaction} other {Applied to # transactions}} · {created, plural, one {added # new category} other {added # new categories}}",
     "applyFailed": "Couldn't apply the categories. Try again."
+  },
+  "insights": {
+    "pageTitle": "Insights",
+    "refresh": "Recalculate",
+    "error": "Couldn't calculate insights. Try again in a moment.",
+    "thinHistory": "Spent has {days} days of history so far. Forecasts and recurring charges get more reliable after about three months.",
+    "footer": "Everything here is calculated on this computer from your own transactions. Spent never moves money or changes anything at your bank.",
+    "home": {
+      "label": "Insights",
+      "seeAll": "See all",
+      "nothing": "Nothing needs your attention right now."
+    },
+    "cadence": {
+      "weekly": "a week",
+      "monthly": "a month",
+      "bimonthly": "every two months",
+      "quarterly": "a quarter",
+      "annual": "a year"
+    },
+    "forecast": {
+      "label": "This period, likely total",
+      "dayOf": "Day {day} of {total}",
+      "likelyBy": "by {end}",
+      "spent": "Spent so far",
+      "fixed": "Recurring still due",
+      "everyday": "Everyday spending ahead",
+      "target_target": "Your target",
+      "target_budgets": "Your budgets",
+      "target_typical": "A typical period",
+      "over_target": "Heading about {amount} over your target.",
+      "over_budgets": "Heading about {amount} over your budgets.",
+      "over_typical": "Heading about {amount} above a typical period.",
+      "under_target": "On track: about {amount} under your target.",
+      "under_budgets": "On track: about {amount} under your budgets.",
+      "under_typical": "About {amount} below a typical period.",
+      "how": "The range comes from how the rest of your last {count} periods went, adjusted to this period's pace, plus the recurring charges and installments still due.",
+      "howThin": "With little history, the range is a straight-line estimate from this period's pace."
+    },
+    "committed": {
+      "label": "Already committed",
+      "seeRecurring": "Recurring charges",
+      "next": "<b>{amount}</b> of next period is already spoken for: installments plus recurring charges.",
+      "chartLabel": "Committed spending for the next six periods",
+      "installments": "Installments",
+      "recurring": "Recurring charges",
+      "planLine": "{amount} a month · ends {end}",
+      "noPlans": "No installment plans running."
+    },
+    "feed": {
+      "label": "Worth a look",
+      "count": "{count, plural, one {# finding} other {# findings}}",
+      "empty": "Nothing needs your attention right now.",
+      "showMore": "{count, plural, one {Show # more} other {Show # more}}",
+      "showLess": "Show fewer",
+      "hidden": "{count, plural, one {# hidden · show again} other {# hidden · show again}}",
+      "jump": "Show",
+      "showTransactions": "Show transactions",
+      "not_recurring": "Not recurring",
+      "not_unusual": "Not unusual",
+      "snooze": "Later",
+      "dismiss": "Dismiss",
+      "price_up": {
+        "title": "{merchant} went up",
+        "detail": "From {from} to {to} since {since}. That's about {yearly} more a year."
+      },
+      "price_down": {
+        "title": "{merchant} got cheaper",
+        "detail": "From {from} to {to} since {since}, about {yearly} less a year."
+      },
+      "new_recurring": {
+        "title": "New recurring charge: {merchant}",
+        "detail": "{amount} {cadence} since {since}. If it continues, that's {yearly} a year."
+      },
+      "missing_recurring": {
+        "title": "{merchant} hasn't been charged",
+        "detail": "Usually {amount} {cadence}; it was expected around {expected}. If you canceled it, all good. If not, check the card or account it's billed to."
+      },
+      "duplicate": {
+        "title": "Possible double charge at {merchant}",
+        "detail": "{amount} on {first} and again on {second}, on the same card. If you only bought once, contact the merchant or the card company."
+      },
+      "forecast_over": {
+        "title_target": "This period is heading over your target",
+        "title_budgets": "This period is heading over your budgets",
+        "title_typical": "This period is running well above usual",
+        "detail_target": "Likely {low}–{high} by {end}, against a {target} target.",
+        "detail_budgets": "Likely {low}–{high} by {end}, against {target} in budgets.",
+        "detail_typical": "Likely {low}–{high} by {end}; a typical period is about {target}."
+      },
+      "forecast_under": {
+        "title": "On track to finish under target",
+        "detail": "Likely {low}–{high} by {end}, against {target}."
+      },
+      "budget_pace": {
+        "title_over": "{category} is over budget",
+        "detail_over": "{spent} spent of {budget} this period.",
+        "title_pace": "{category} is heading over budget",
+        "detail_pace": "{spent} so far; at this pace about {projected} by the end of the period, against {budget}."
+      },
+      "unusual_category": {
+        "title": "{category} is higher than usual",
+        "detail": "{amount} so far this period, against a typical {typical} by this point."
+      },
+      "large_charge": {
+        "title": "Large purchase at {merchant}",
+        "title_new": "First purchase at {merchant}, and a large one",
+        "detail": "{amount} on {date}, more than your usual {category} purchases.",
+        "detail_plain": "{amount} on {date}."
+      },
+      "salary_late": {
+        "title": "Your salary hasn't arrived yet",
+        "detail": "{merchant} usually pays around day {day} of the month (about {typical}). It may just be late; check if it doesn't show up in a few days."
+      },
+      "salary_changed": {
+        "title_up": "Your salary went up {pct}%",
+        "title_down": "Your salary was {pct}% lower",
+        "detail": "{last} this time, against a typical {typical}."
+      },
+      "installments_ending": {
+        "title": "{count, plural, one {An installment plan ends this period} other {# installment plans end this period}}",
+        "detail": "From {from}, about {freed} a month is free again."
+      },
+      "fees": {
+        "title": "{total} in bank and card fees this year",
+        "detail": "{lines, plural, one {From one kind of fee.} other {From # kinds of fees.}} Israeli banks must offer a basic fee track; it may be worth asking yours which one suits how you bank."
+      },
+      "budget_suggest": {
+        "title": "Budgets from your typical spending",
+        "detail": "{count, plural, one {One category has} other {# categories have}} steady spending and no budget. The suggested amounts are below."
+      },
+      "refund": {
+        "title": "Refund from {merchant}",
+        "detail": "{amount} came back on {date}."
+      },
+      "merchant_merge": {
+        "title": "One merchant under two names?",
+        "detail": "{a} and {b} look like the same company. Merging them makes recurring charges more accurate."
+      },
+      "charged_after_cancel": {
+        "title": "{merchant} charged after you canceled",
+        "detail": "{amount} on {date}; you marked it canceled on {cancelledAt}. Check that the subscription is really closed, or ask for a refund."
+      }
+    },
+    "toast": {
+      "dismissed": "Dismissed",
+      "snoozed": "Snoozed for a week",
+      "not_recurring": "Won't treat it as recurring",
+      "not_unusual": "Got it, it's not unusual",
+      "clear": "Restored",
+      "failed": "Couldn't save that. Try again.",
+      "cadenceSet": "Now expected: {cadence}",
+      "cadenceAuto": "Frequency detected automatically again",
+      "cancelled": "{merchant} marked canceled. It won't be expected anymore.",
+      "reactivated": "Expected again"
+    },
+    "ai": {
+      "localModel": "your local model",
+      "writtenBy": "Summary by {provider}",
+      "again": "Write again",
+      "privacyClaude": "Claude can sum this page up in plain words. It gets the figures shown here (amounts, categories and merchant names), not your transactions.",
+      "privacyLocal": "Your local model can sum this page up in plain words. Nothing leaves this computer.",
+      "writing": "Writing…",
+      "summarize": "Summarize with {provider}",
+      "failed": "The AI didn't answer. Check the provider in Settings › AI and try again."
+    },
+    "upcoming": {
+      "label": "Next 30 days",
+      "total": "{amount} expected",
+      "empty": "No recurring charges or installments expected in the next 30 days.",
+      "cardBill": "{card} bill",
+      "kind": {
+        "recurring": "Recurring",
+        "installment": "Installment",
+        "card_bill": "Card bill",
+        "income": "Income"
+      },
+      "cardBillNote": "A card bill pays for card purchases, so it overlaps with the card charges listed. It keeps growing until the statement closes."
+    },
+    "recurring": {
+      "label": "Recurring charges",
+      "yearly": "{amount} a year",
+      "empty": "No recurring charges found yet. They show up after a charge repeats about three times.",
+      "group": {
+        "subscriptions": "Subscriptions and services",
+        "bills": "Bills",
+        "income": "Income",
+        "transfers": "Transfers, savings and loans",
+        "cancelled": "Canceled"
+      },
+      "groupYearly": "{amount} a year",
+      "col": {
+        "merchant": "Merchant",
+        "amount": "Amount",
+        "yearly": "Per year",
+        "next": "Next",
+        "status": "Status"
+      },
+      "since": "since {date}",
+      "perYear": "a year",
+      "status": {
+        "active": "Regular",
+        "new": "New",
+        "changed": "Price changed",
+        "missing": "Not charged",
+        "changedTo": "{from} → {to}",
+        "cancelledOn": "Canceled {date}",
+        "chargedAfterCancel": "Charged {date} after cancel",
+        "manual": "Added by you"
+      },
+      "more": "More for {merchant}",
+      "note": "Bills like electricity, water and arnona change with use and can rarely be shopped around. Subscriptions, cellular and insurance usually can.",
+      "nextShort": "next {date}",
+      "cancelledSaves": "saves {amount} a year",
+      "cadenceSetByYou": "{cadence} · set by you",
+      "menu": {
+        "billed": "Billed",
+        "auto": "Detect automatically",
+        "cancel": "I canceled this",
+        "reactivate": "Not canceled after all"
+      }
+    },
+    "recap": {
+      "label": "Last period · {from} – {to}",
+      "spent": "Spent",
+      "income": "Income",
+      "net": "Left over",
+      "vsTypical": "{pct} vs typical",
+      "drivers": "Biggest changes from a typical period",
+      "uncategorized": "Uncategorized",
+      "biggest": "Largest purchase: <b>{merchant}</b>, {amount}."
+    },
+    "fees": {
+      "label": "Fees, last 12 months",
+      "subtitle": "Bank and card fees and interest",
+      "times": "{count, plural, one {once} other {# times}}",
+      "none": "No fees found in the last 12 months.",
+      "foreign": "{amount} spent in foreign currencies ({count, plural, one {one purchase} other {# purchases}}). If your card adds the common 2.5–3.5% conversion fee, that's about {low}–{high} on top.",
+      "tip": "Basic bank fee tracks cost around ₪10 a month or less."
+    },
+    "income": {
+      "label": "Salary",
+      "status": {
+        "received": "Received",
+        "late": "Not in yet",
+        "upcoming": "Expected"
+      },
+      "last": "Last payment",
+      "typical": "Typical",
+      "change": "{pct} vs typical",
+      "usually": "Usually arrives around day {day} of the month."
+    },
+    "budgets": {
+      "label": "Suggested budgets",
+      "explain": "Categories with steady spending and no budget. Each suggestion is your typical period, rounded up.",
+      "typical": "typical {amount}",
+      "setButton": "Set {amount}",
+      "done": "Set",
+      "set": "{category} budget set to {amount}"
+    },
+    "merge": {
+      "label": "Same merchant?",
+      "explain": "These names look like one company. Merging them keeps a recurring charge together when the bank spells it differently.",
+      "merge": "Merge",
+      "notSame": "Not the same",
+      "merged": "Merged",
+      "kept": "Kept apart"
+    },
+    "cadenceName": {
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "bimonthly": "Every two months",
+      "quarterly": "Quarterly",
+      "annual": "Yearly"
+    }
   }
 }

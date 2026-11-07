@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 import {
   ArrowLeftRight,
+  CalendarClock,
   Check,
   Eye,
   EyeOff,
@@ -36,6 +37,7 @@ import {
   getCategories,
   setTransactionExcluded,
   setTransactionKind,
+  trackAsSubscription,
   updateTransactionCategory,
 } from "@/lib/api";
 import { translateCategoryName } from "@/lib/i18n-data";
@@ -51,6 +53,10 @@ import {
 } from "@/components/transactions/sortable-table-head";
 import { INCOME_INK } from "@/components/transactions/summary-strip";
 import { PaymentHistorySheet } from "@/components/transactions/payment-history-sheet";
+import type { RecurringCadence } from "@/lib/insights-types";
+
+/** Frequencies offered when tracking a transaction as a subscription, most common first. */
+const TRACK_CADENCES: RecurringCadence[] = ["monthly", "annual", "bimonthly", "quarterly", "weekly"];
 import type { SortOrder, TransactionSortField } from "@/lib/transaction-sort";
 import { cn } from "@/lib/utils";
 import type {
@@ -225,6 +231,13 @@ export function TransactionsTable({
 
   const actions: RowActions = {
     openHistory: (txn) => setHistoryId(txn.id),
+    trackSubscription: (txn, cadence) =>
+      void trackAsSubscription(txn.id, cadence)
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["insights"] });
+          toast.success(t("trackedToast", { merchant: txn.description, cadence: t(`trackCadence.${cadence}`) }));
+        })
+        .catch(() => toast.error(t("actionFailed"))),
     changeCategory: (txn, categoryId) =>
       void runRowAction(txn.id, () => updateTransactionCategory(txn.id, categoryId)),
     approve: (txn) =>
@@ -528,6 +541,7 @@ export function TransactionsTable({
 
 interface RowActions {
   openHistory: (txn: TransactionWithCategory) => void;
+  trackSubscription: (txn: TransactionWithCategory, cadence: RecurringCadence) => void;
   changeCategory: (txn: TransactionWithCategory, categoryId: number) => void;
   approve: (txn: TransactionWithCategory) => void;
   changeKind: (txn: TransactionWithCategory, kind: Kind) => void;
@@ -599,17 +613,22 @@ function DesktopRow({
         </button>
       </td>
       <td className="px-3.5 py-2.5 align-middle">
-        <CategoryMenu
-          txn={txn}
-          t={t}
-          tCat={tCat}
-          categories={categoriesFor(txn)}
-          actions={actions}
-          disabled={busy}
-          triggerClassName="max-w-[196px] rounded-full"
-        >
-          <RowCategoryChip txn={txn} reason={reason} t={t} tCat={tCat} />
-        </CategoryMenu>
+        <div className="flex flex-wrap items-center gap-1">
+          <CategoryMenu
+            txn={txn}
+            t={t}
+            tCat={tCat}
+            categories={categoriesFor(txn)}
+            actions={actions}
+            disabled={busy}
+            triggerClassName="max-w-[196px] rounded-full"
+          >
+            <RowCategoryChip txn={txn} reason={reason} t={t} tCat={tCat} />
+          </CategoryMenu>
+          {txn.needsReview && txn.categoryName ? (
+            <ApproveButton txn={txn} t={t} actions={actions} disabled={busy} />
+          ) : null}
+        </div>
       </td>
       <td
         className={cn(
@@ -723,6 +742,9 @@ function MobileRow({
           >
             <RowCategoryChip txn={txn} reason={reason} t={t} tCat={tCat} />
           </CategoryMenu>
+          {txn.needsReview && txn.categoryName ? (
+            <ApproveButton txn={txn} t={t} actions={actions} disabled={busy} />
+          ) : null}
           <AccountMark
             provider={txn.provider}
             accountLabel={txn.accountLabel}
@@ -753,6 +775,33 @@ function MobileRow({
         </div>
       </div>
     </li>
+  );
+}
+
+/** Keeps the AI's category and takes the row out of the review queue. */
+function ApproveButton({
+  txn,
+  t,
+  actions,
+  disabled,
+}: {
+  txn: TransactionWithCategory;
+  t: Translator;
+  actions: RowActions;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => actions.approve(txn)}
+      disabled={disabled}
+      aria-label={t("rowApproveLabel", { merchant: txn.description })}
+      title={t("rowApproveTooltip")}
+      className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[11.5px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+    >
+      <Check className="h-3.5 w-3.5" style={{ color: INCOME_INK }} />
+      {t("rowLooksRight")}
+    </button>
   );
 }
 
@@ -1004,6 +1053,21 @@ function RowMoreMenu({
           <History className="h-3.5 w-3.5" />
           {t("historyOpen")}
         </DropdownMenuItem>
+        {txn.chargedAmount < 0 && txn.type !== "installments" ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <CalendarClock className="h-3.5 w-3.5" />
+              {t("trackSubscription")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-48">
+              {TRACK_CADENCES.map((c) => (
+                <DropdownMenuItem key={c} onClick={() => actions.trackSubscription(txn, c)}>
+                  {t(`trackCadence.${c}`)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : null}
         <DropdownMenuSeparator />
         {includeCategory && menu.categories.length > 0 ? (
           <>

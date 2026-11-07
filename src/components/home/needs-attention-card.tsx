@@ -50,7 +50,7 @@ export function NeedsAttentionCard({ data }: Props) {
           {total}
         </span>
         <p className="min-w-[10rem] flex-1 text-[13px] text-muted-foreground">{sentence}</p>
-        <Link href="/transactions" className={buttonVariants({ size: "sm" })}>
+        <Link href="/transactions?review=1" className={buttonVariants({ size: "sm" })}>
           {t("review")}
         </Link>
       </div>

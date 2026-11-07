@@ -18,6 +18,7 @@ import { BankHealthCard } from "./bank-health-card";
 import { SyncFailureBanner } from "./sync-failure-banner";
 import { CardError, CardSkeleton } from "./card-shell";
 import type { HomePayload, HomeSection } from "@/lib/types";
+import { TopInsightCard } from "./top-insight-card";
 import { useAmountsHidden } from "@/components/layout/amounts-toggle";
 
 type CardSection = Exclude<HomeSection, "topMerchants">;
@@ -83,6 +84,7 @@ export function HomePage() {
           <div className={`${ROW_GAP} lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]`}>
             {section("recentTransactions")}
             <div className="flex min-w-0 flex-col gap-4 md:gap-5 lg:gap-6">
+              <TopInsightCard />
               {section("needsAttention")}
               {section("bankHealth")}
             </div>

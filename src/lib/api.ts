@@ -16,6 +16,7 @@ import type {
   CardAccount,
   RoutedInCard,
 } from "./types";
+import type { InsightsPayload, RecurringCadence } from "./insights-types";
 import { getActiveWorkspaceIdSync } from "./workspace-store";
 import { scopeHeaderValue } from "./scope-store";
 
@@ -215,6 +216,8 @@ export interface TransactionsSummary {
   notCounted: { total: number; count: number };
   topMerchants: { description: string; total: number; count: number }[];
   pendingReviewCount: number;
+  /** Rows with no category at all: what AI categorization works on. */
+  uncategorizedCount: number;
 }
 
 export function getTransactionsSummary(params: {
@@ -251,11 +254,13 @@ export function getTransactions(params: {
   accounts?: string[];
   /** Ask for segment counts, totals and per-day totals. */
   aggregates?: boolean;
+  /** Only the review queue, any date. */
+  review?: boolean;
 }) {
   const searchParams = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined) return;
-    if (key === "aggregates") {
+    if (key === "aggregates" || key === "review") {
       if (value === true) searchParams.set(key, "1");
       return;
     }
@@ -306,6 +311,79 @@ export function setTransactionExcluded(
 /** Installment plan and every payment to the same merchant, for the history sheet. */
 export function getTransactionHistory(id: number) {
   return fetchJSON<TransactionHistory>(`/api/transactions/${id}/history`);
+}
+
+export function getInsights() {
+  return fetchJSON<InsightsPayload>("/api/insights");
+}
+
+export type InsightFeedbackAction = "dismissed" | "snoozed" | "not_recurring" | "not_unusual" | "clear";
+
+export function sendInsightFeedback(key: string, action: InsightFeedbackAction, days?: number) {
+  return fetchJSON<{ success: boolean }>("/api/insights/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, action, days }),
+  });
+}
+
+/** Brings back every dismissed or snoozed insight. */
+export function restoreHiddenInsights() {
+  return fetchJSON<{ restored: number }>("/api/insights/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "reset" }),
+  });
+}
+
+/** Treats `alias` as the same merchant as `canonical`, or stops suggesting the pair. */
+export function mergeMerchants(alias: string, canonical: string, dismiss = false) {
+  return fetchJSON<{ success: boolean }>("/api/insights/merge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ alias, canonical, dismiss }),
+  });
+}
+
+export interface RecurringTarget {
+  key: string;
+  merchantKey: string;
+  direction: "out" | "in";
+}
+
+/** How often a recurring charge bills; "auto" goes back to detection. */
+export function setRecurringCadence(target: RecurringTarget, cadence: RecurringCadence | "auto") {
+  return fetchJSON<{ success: boolean }>("/api/insights/recurring", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "cadence", ...target, cadence }),
+  });
+}
+
+/** Marks a recurring charge canceled (today) or active again. */
+export function setRecurringCancelled(target: RecurringTarget, cancelled: boolean) {
+  return fetchJSON<{ success: boolean }>("/api/insights/recurring", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "cancel", ...target, cancelled }),
+  });
+}
+
+/** Tracks a transaction's merchant as a subscription billed at `cadence`. */
+export function trackAsSubscription(transactionId: number, cadence: RecurringCadence) {
+  return fetchJSON<{ success: boolean; key: string }>("/api/insights/recurring", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "track", transactionId, cadence }),
+  });
+}
+
+export function summarizeInsights(locale: string) {
+  return fetchJSON<{ text: string; provider: "claude" | "ollama" }>("/api/insights/summary", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ locale }),
+  });
 }
 
 export interface FxStatus {

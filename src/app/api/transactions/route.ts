@@ -62,6 +62,7 @@ async function handleGET(request: Request) {
     credentialIds: credentialIds.length > 0 ? credentialIds : undefined,
     accounts: accounts.length > 0 ? accounts : undefined,
     withAggregates: searchParams.get("aggregates") === "1",
+    reviewOnly: searchParams.get("review") === "1",
   });
 
   return NextResponse.json(result);

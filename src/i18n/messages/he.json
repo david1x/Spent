@@ -46,7 +46,8 @@
     "scopeCount": "{count} בנקים",
     "scopeLabel": "חשבונות בסיכומים: {scope}",
     "scopeHint": "הסיכומים כוללים את הבנקים שבחרת ואת הכרטיסים המקושרים לכל אחד מהם בהגדרות › חשבונות בנק.",
-    "scopeLinkedCards": "{count, plural, =0 {אין כרטיסים מקושרים} one {+ כרטיס מקושר אחד} other {+ # כרטיסים מקושרים}}"
+    "scopeLinkedCards": "{count, plural, =0 {אין כרטיסים מקושרים} one {+ כרטיס מקושר אחד} other {+ # כרטיסים מקושרים}}",
+    "insights": "תובנות"
   },
   "home": {
     "pageTitle": "בית",
@@ -349,7 +350,26 @@
     "historyError": "לא הצלחנו לטעון את היסטוריית התשלום. נסו שוב.",
     "historyNextBill": "בחיוב הקרוב",
     "historyMoreExpected": "{count, plural, one {הצגת תשלום צפוי נוסף} other {הצגת # תשלומים צפויים נוספים}}",
-    "amountEstimatedHint": "הערכה בשקלים. הכרטיס מחייב את העסקה הזו במטבע שלה וממיר אותה ביום החיוב."
+    "amountEstimatedHint": "הערכה בשקלים. הכרטיס מחייב את העסקה הזו במטבע שלה וממיר אותה ביום החיוב.",
+    "uncategorizedPill": "{count, plural, one {סיווג עסקה אחת עם AI} other {סיווג # עסקאות עם AI}}",
+    "reviewTitle": "{count, plural, one {עסקה אחת לבדיקה} other {# עסקאות לבדיקה}}",
+    "reviewExplain": "ה־AI בחר את הקטגוריות האלה אבל לא היה בטוח. אשרו את מה שנכון, או לחצו על קטגוריה כדי לשנות אותה. הרשימה כוללת את כל התאריכים.",
+    "reviewAllDone": "הכול נבדק",
+    "reviewAllDoneExplain": "אין עסקאות שמחכות לבדיקה. סנכרונים חדשים יוסיפו לכאן עסקאות כשה־AI לא בטוח.",
+    "reviewApproveAll": "{count, plural, one {אישור העסקה} other {אישור כל ה־#}}",
+    "reviewApprovedAll": "{count, plural, one {עסקה אחת אושרה} other {# עסקאות אושרו}}",
+    "reviewDone": "סיום",
+    "rowLooksRight": "נכון",
+    "rowApproveLabel": "השארת הקטגוריה של {merchant}",
+    "trackSubscription": "מעקב כמנוי",
+    "trackCadence": {
+      "weekly": "כל שבוע",
+      "monthly": "כל חודש",
+      "bimonthly": "כל חודשיים",
+      "quarterly": "כל רבעון",
+      "annual": "כל שנה"
+    },
+    "trackedToast": "{merchant} במעקב: {cadence}. אפשר לראות אותו בתובנות."
   },
   "dashboard": {
     "syncing": "מסנכרן…",
@@ -985,5 +1005,279 @@
     "applied": "{count, plural, one {הוחל על עסקה אחת} other {הוחל על # עסקאות}}",
     "appliedWithNew": "{count, plural, one {הוחל על עסקה אחת} other {הוחל על # עסקאות}} · {created, plural, one {נוספה קטגוריה חדשה} other {נוספו # קטגוריות חדשות}}",
     "applyFailed": "לא הצלחנו להחיל את הקטגוריות. נסו שוב."
+  },
+  "insights": {
+    "pageTitle": "תובנות",
+    "refresh": "חישוב מחדש",
+    "error": "לא הצלחנו לחשב תובנות. נסו שוב בעוד רגע.",
+    "thinHistory": "ל־Spent יש עד עכשיו {days} ימים של היסטוריה. התחזיות וזיהוי החיובים הקבועים נעשים אמינים יותר אחרי כשלושה חודשים.",
+    "footer": "הכול כאן מחושב במחשב הזה מתוך העסקאות שלך. Spent אף פעם לא מעביר כסף ולא משנה שום דבר בבנק.",
+    "home": {
+      "label": "תובנות",
+      "seeAll": "לכל התובנות",
+      "nothing": "אין כרגע משהו שדורש תשומת לב."
+    },
+    "cadence": {
+      "weekly": "בשבוע",
+      "monthly": "בחודש",
+      "bimonthly": "כל חודשיים",
+      "quarterly": "ברבעון",
+      "annual": "בשנה"
+    },
+    "forecast": {
+      "label": "התקופה הזו, סך משוער",
+      "dayOf": "יום {day} מתוך {total}",
+      "likelyBy": "עד {end}",
+      "spent": "הוצאת עד כה",
+      "fixed": "חיובים קבועים שעוד יגיעו",
+      "everyday": "הוצאות שוטפות צפויות",
+      "target_target": "היעד שלך",
+      "target_budgets": "התקציבים שלך",
+      "target_typical": "תקופה רגילה",
+      "over_target": "בכיוון של כ־{amount} מעל היעד.",
+      "over_budgets": "בכיוון של כ־{amount} מעל התקציבים.",
+      "over_typical": "בכיוון של כ־{amount} מעל תקופה רגילה.",
+      "under_target": "במסלול: כ־{amount} מתחת ליעד.",
+      "under_budgets": "במסלול: כ־{amount} מתחת לתקציבים.",
+      "under_typical": "כ־{amount} מתחת לתקופה רגילה.",
+      "how": "הטווח מחושב לפי איך נגמרו {count} התקופות האחרונות, מותאם לקצב של התקופה הזו, ובתוספת החיובים הקבועים והתשלומים שעוד צפויים.",
+      "howThin": "כשיש מעט היסטוריה, הטווח הוא הערכה לפי הקצב של התקופה הזו."
+    },
+    "committed": {
+      "label": "כבר מחויב",
+      "seeRecurring": "חיובים קבועים",
+      "next": "<b>{amount}</b> מהתקופה הבאה כבר מחויבים: תשלומים וחיובים קבועים.",
+      "chartLabel": "הוצאות מחויבות בשש התקופות הבאות",
+      "installments": "תשלומים",
+      "recurring": "חיובים קבועים",
+      "planLine": "{amount} בחודש · עד {end}",
+      "noPlans": "אין עסקאות בתשלומים פעילות."
+    },
+    "feed": {
+      "label": "שווה בדיקה",
+      "count": "{count, plural, one {ממצא אחד} other {# ממצאים}}",
+      "empty": "אין כרגע משהו שדורש תשומת לב.",
+      "showMore": "{count, plural, one {הצגת עוד אחד} other {הצגת עוד #}}",
+      "showLess": "הצגת פחות",
+      "hidden": "{count, plural, one {אחד מוסתר · להציג שוב} other {# מוסתרים · להציג שוב}}",
+      "jump": "הצגה",
+      "showTransactions": "הצגת העסקאות",
+      "not_recurring": "לא חיוב קבוע",
+      "not_unusual": "לא חריג",
+      "snooze": "אחר כך",
+      "dismiss": "הסתרה",
+      "price_up": {
+        "title": "{merchant} התייקר",
+        "detail": "מ־{from} ל־{to} מאז {since}. זה בערך {yearly} יותר בשנה."
+      },
+      "price_down": {
+        "title": "{merchant} הוזל",
+        "detail": "מ־{from} ל־{to} מאז {since}, בערך {yearly} פחות בשנה."
+      },
+      "new_recurring": {
+        "title": "חיוב קבוע חדש: {merchant}",
+        "detail": "{amount} {cadence} מאז {since}. אם זה ממשיך, זה {yearly} בשנה."
+      },
+      "missing_recurring": {
+        "title": "{merchant} לא חויב",
+        "detail": "בדרך כלל {amount} {cadence}; החיוב היה צפוי בסביבות {expected}. אם ביטלת, הכול בסדר. אם לא, כדאי לבדוק את הכרטיס או החשבון שמחויב."
+      },
+      "duplicate": {
+        "title": "אולי חיוב כפול ב־{merchant}",
+        "detail": "{amount} ב־{first} ושוב ב־{second}, באותו כרטיס. אם קנית רק פעם אחת, כדאי לפנות לבית העסק או לחברת האשראי."
+      },
+      "forecast_over": {
+        "title_target": "התקופה בכיוון לעבור את היעד",
+        "title_budgets": "התקופה בכיוון לעבור את התקציבים",
+        "title_typical": "התקופה גבוהה בהרבה מהרגיל",
+        "detail_target": "סביר שתגיע ל־{low}–{high} עד {end}, מול יעד של {target}.",
+        "detail_budgets": "סביר שתגיע ל־{low}–{high} עד {end}, מול תקציבים של {target}.",
+        "detail_typical": "סביר שתגיע ל־{low}–{high} עד {end}; תקופה רגילה היא בערך {target}."
+      },
+      "forecast_under": {
+        "title": "במסלול לסיים מתחת ליעד",
+        "detail": "סביר שתגיע ל־{low}–{high} עד {end}, מול {target}."
+      },
+      "budget_pace": {
+        "title_over": "{category} עבר את התקציב",
+        "detail_over": "הוצאו {spent} מתוך {budget} בתקופה הזו.",
+        "title_pace": "{category} בכיוון לעבור את התקציב",
+        "detail_pace": "{spent} עד כה; בקצב הזה בערך {projected} עד סוף התקופה, מול {budget}."
+      },
+      "unusual_category": {
+        "title": "{category} גבוה מהרגיל",
+        "detail": "{amount} עד כה בתקופה הזו, לעומת {typical} בדרך כלל עד הנקודה הזו."
+      },
+      "large_charge": {
+        "title": "קנייה גדולה ב־{merchant}",
+        "title_new": "קנייה ראשונה ב־{merchant}, וגדולה",
+        "detail": "{amount} ב־{date}, יותר מהקניות הרגילות שלך ב{category}.",
+        "detail_plain": "{amount} ב־{date}."
+      },
+      "salary_late": {
+        "title": "המשכורת עוד לא נכנסה",
+        "detail": "{merchant} משלם בדרך כלל בסביבות ה־{day} לחודש (כ־{typical}). אולי זה רק עיכוב; כדאי לבדוק אם היא לא נכנסת בימים הקרובים."
+      },
+      "salary_changed": {
+        "title_up": "המשכורת עלתה ב־{pct}%",
+        "title_down": "המשכורת הייתה נמוכה ב־{pct}%",
+        "detail": "{last} הפעם, לעומת {typical} בדרך כלל."
+      },
+      "installments_ending": {
+        "title": "{count, plural, one {עסקה בתשלומים מסתיימת בתקופה הזו} other {# עסקאות בתשלומים מסתיימות בתקופה הזו}}",
+        "detail": "מ־{from} מתפנים בערך {freed} בחודש."
+      },
+      "fees": {
+        "title": "{total} בעמלות בנק ואשראי השנה",
+        "detail": "{lines, plural, one {מסוג עמלה אחד.} other {מ־# סוגי עמלות.}} הבנקים בישראל חייבים להציע מסלול עמלות בסיסי; אולי כדאי לשאול את הבנק שלך איזה מסלול מתאים לך."
+      },
+      "budget_suggest": {
+        "title": "תקציבים לפי ההוצאות הרגילות שלך",
+        "detail": "{count, plural, one {בקטגוריה אחת יש} other {ב־# קטגוריות יש}} הוצאה יציבה בלי תקציב. הצעות לסכומים מופיעות למטה."
+      },
+      "refund": {
+        "title": "זיכוי מ־{merchant}",
+        "detail": "{amount} חזרו ב־{date}."
+      },
+      "merchant_merge": {
+        "title": "אותו בית עסק בשני שמות?",
+        "detail": "{a} ו־{b} נראים כמו אותה חברה. איחוד שלהם משפר את זיהוי החיובים הקבועים."
+      },
+      "charged_after_cancel": {
+        "title": "{merchant} חויב אחרי שביטלת",
+        "detail": "{amount} ב־{date}; סימנת אותו כמבוטל ב־{cancelledAt}. כדאי לבדוק שהמנוי באמת סגור, או לבקש החזר."
+      }
+    },
+    "toast": {
+      "dismissed": "הוסתר",
+      "snoozed": "יוצג שוב בעוד שבוע",
+      "not_recurring": "לא נתייחס לזה כחיוב קבוע",
+      "not_unusual": "הבנו, זה לא חריג",
+      "clear": "שוחזר",
+      "failed": "לא הצלחנו לשמור. נסו שוב.",
+      "cadenceSet": "צפוי מעכשיו: {cadence}",
+      "cadenceAuto": "התדירות מזוהה שוב אוטומטית",
+      "cancelled": "{merchant} סומן כמבוטל ולא יופיע יותר כחיוב צפוי.",
+      "reactivated": "צפוי שוב"
+    },
+    "ai": {
+      "localModel": "המודל המקומי",
+      "writtenBy": "סיכום מאת {provider}",
+      "again": "לכתוב שוב",
+      "privacyClaude": "Claude יכול לסכם את העמוד במילים פשוטות. הוא מקבל את הנתונים שמוצגים כאן (סכומים, קטגוריות ושמות בתי עסק), לא את העסקאות שלך.",
+      "privacyLocal": "המודל המקומי יכול לסכם את העמוד במילים פשוטות. שום דבר לא יוצא מהמחשב.",
+      "writing": "כותב…",
+      "summarize": "סיכום עם {provider}",
+      "failed": "ה־AI לא ענה. כדאי לבדוק את הספק בהגדרות › AI ולנסות שוב."
+    },
+    "upcoming": {
+      "label": "30 הימים הקרובים",
+      "total": "{amount} צפויים",
+      "empty": "לא צפויים חיובים קבועים או תשלומים ב־30 הימים הקרובים.",
+      "cardBill": "חיוב {card}",
+      "kind": {
+        "recurring": "קבוע",
+        "installment": "תשלום",
+        "card_bill": "חיוב כרטיס",
+        "income": "הכנסה"
+      },
+      "cardBillNote": "חיוב הכרטיס משלם על הקניות בכרטיס, ולכן הוא חופף לחיובים בכרטיס שברשימה. הסכום ממשיך לגדול עד סגירת הדף."
+    },
+    "recurring": {
+      "label": "חיובים קבועים",
+      "yearly": "{amount} בשנה",
+      "empty": "עדיין לא נמצאו חיובים קבועים. הם מופיעים אחרי שחיוב חוזר בערך שלוש פעמים.",
+      "group": {
+        "subscriptions": "מינויים ושירותים",
+        "bills": "חשבונות",
+        "income": "הכנסות",
+        "transfers": "העברות, חיסכון והלוואות",
+        "cancelled": "בוטלו"
+      },
+      "groupYearly": "{amount} בשנה",
+      "col": {
+        "merchant": "בית עסק",
+        "amount": "סכום",
+        "yearly": "בשנה",
+        "next": "הבא",
+        "status": "מצב"
+      },
+      "since": "מאז {date}",
+      "perYear": "בשנה",
+      "status": {
+        "active": "קבוע",
+        "new": "חדש",
+        "changed": "המחיר השתנה",
+        "missing": "לא חויב",
+        "changedTo": "{from} ← {to}",
+        "cancelledOn": "בוטל ב־{date}",
+        "chargedAfterCancel": "חויב ב־{date} אחרי הביטול",
+        "manual": "נוסף על ידך"
+      },
+      "more": "עוד אפשרויות עבור {merchant}",
+      "note": "חשבונות כמו חשמל, מים וארנונה משתנים לפי צריכה וקשה להוזיל אותם. מינויים, סלולר וביטוחים בדרך כלל אפשר.",
+      "nextShort": "הבא {date}",
+      "cancelledSaves": "חיסכון של {amount} בשנה",
+      "cadenceSetByYou": "{cadence} · נקבע על ידך",
+      "menu": {
+        "billed": "מחויב",
+        "auto": "זיהוי אוטומטי",
+        "cancel": "ביטלתי את זה",
+        "reactivate": "בכל זאת לא בוטל"
+      }
+    },
+    "recap": {
+      "label": "התקופה הקודמת · {from} – {to}",
+      "spent": "הוצאות",
+      "income": "הכנסות",
+      "net": "נשאר",
+      "vsTypical": "{pct} לעומת הרגיל",
+      "drivers": "השינויים הגדולים לעומת תקופה רגילה",
+      "uncategorized": "ללא קטגוריה",
+      "biggest": "הקנייה הגדולה ביותר: <b>{merchant}</b>, {amount}."
+    },
+    "fees": {
+      "label": "עמלות, 12 החודשים האחרונים",
+      "subtitle": "עמלות בנק ואשראי וריבית",
+      "times": "{count, plural, one {פעם אחת} other {# פעמים}}",
+      "none": "לא נמצאו עמלות ב־12 החודשים האחרונים.",
+      "foreign": "{amount} הוצאו במטבע חוץ ({count, plural, one {קנייה אחת} other {# קניות}}). אם הכרטיס שלך גובה את עמלת ההמרה הנפוצה של 2.5–3.5%, זה בערך {low}–{high} נוספים.",
+      "tip": "מסלולי עמלות בסיסיים בבנק עולים בערך ₪10 בחודש או פחות."
+    },
+    "income": {
+      "label": "משכורת",
+      "status": {
+        "received": "התקבלה",
+        "late": "עוד לא נכנסה",
+        "upcoming": "צפויה"
+      },
+      "last": "תשלום אחרון",
+      "typical": "בדרך כלל",
+      "change": "{pct} לעומת הרגיל",
+      "usually": "נכנסת בדרך כלל בסביבות ה־{day} לחודש."
+    },
+    "budgets": {
+      "label": "הצעות לתקציב",
+      "explain": "קטגוריות עם הוצאה יציבה ובלי תקציב. כל הצעה היא התקופה הרגילה שלך, מעוגלת כלפי מעלה.",
+      "typical": "בדרך כלל {amount}",
+      "setButton": "קביעת {amount}",
+      "done": "נקבע",
+      "set": "התקציב של {category} נקבע ל־{amount}"
+    },
+    "merge": {
+      "label": "אותו בית עסק?",
+      "explain": "השמות האלה נראים כמו אותה חברה. איחוד שומר על חיוב קבוע אחד גם כשהבנק כותב את השם אחרת.",
+      "merge": "איחוד",
+      "notSame": "לא אותו דבר",
+      "merged": "אוחד",
+      "kept": "נשארו נפרדים"
+    },
+    "cadenceName": {
+      "weekly": "שבועי",
+      "monthly": "חודשי",
+      "bimonthly": "דו־חודשי",
+      "quarterly": "רבעוני",
+      "annual": "שנתי"
+    }
   }
 }
