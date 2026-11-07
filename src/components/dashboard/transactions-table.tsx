@@ -1,131 +1,952 @@
 "use client";
 
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { Fragment, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
+import { toast } from "sonner";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+  ArrowLeftRight,
+  Check,
+  Eye,
+  EyeOff,
+  Minus,
+  MoreHorizontal,
+  Tag,
+  X,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatCurrency } from "@/lib/formatters";
 import {
-  MoreHorizontal,
-  HelpCircle,
-  Check,
-  ArrowDownRight,
-  ArrowUpRight,
-  Wallet,
-  Tags,
-  EyeOff,
-  Eye,
-} from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { formatCurrency, formatDate } from "@/lib/formatters";
-import {
-  updateTransactionCategory,
-  setTransactionKind,
   approveTransactionCategory,
   getCategories,
   setTransactionExcluded,
+  setTransactionKind,
+  updateTransactionCategory,
 } from "@/lib/api";
-import { toast } from "sonner";
-import { translateCategoryName, translateProviderName } from "@/lib/i18n-data";
+import { translateCategoryName } from "@/lib/i18n-data";
+import { AccountMark } from "@/components/transactions/transaction-source-cell";
 import {
-  getAccountDisplayLabel,
-  TransactionSourceCell,
-} from "@/components/transactions/transaction-source-cell";
+  CategoryChip,
+  type CategoryChipVariant,
+} from "@/components/transactions/category-chip";
 import {
-  TransactionMultiFilter,
-  MultiFilterOption,
-} from "@/components/transactions/transaction-multi-filter";
-import {
-  formatMultiFilterDisplay,
-  getCategoryDescendantIds,
-  isCategoryFilterChecked,
-  toggleCategoryFilterSelection,
-} from "@/lib/transaction-filters";
-import { SortableTableHead } from "@/components/transactions/sortable-table-head";
+  SortableTableHead,
+  SortButton,
+  TABLE_HEAD_CLASS,
+} from "@/components/transactions/sortable-table-head";
+import { INCOME_INK } from "@/components/transactions/summary-strip";
 import type { SortOrder, TransactionSortField } from "@/lib/transaction-sort";
 import { cn } from "@/lib/utils";
-import { ProviderBadge } from "@/components/setup/provider-badge";
 import type {
-  TransactionWithCategory,
   Category,
-  Integration,
+  TransactionListAggregates,
+  TransactionWithCategory,
 } from "@/lib/types";
-import { BANK_PROVIDERS } from "@/lib/types";
 import type { Locale } from "@/i18n/routing";
 
 type Kind = "expense" | "income" | "transfer";
+type NotCountedReason = "transfer" | "excluded" | "category";
+type Translator = ReturnType<typeof useTranslations<"transactions">>;
+type CategoryTranslator = ReturnType<typeof useTranslations<"categoriesSeeded">>;
 
 interface TransactionsTableProps {
   transactions: TransactionWithCategory[];
   total: number;
-  categories: Category[];
-  integrations: Integration[];
+  /** Per-date totals from the list API; day headers fall back to the page rows. */
+  days?: TransactionListAggregates["days"];
   loading: boolean;
-  search: string;
-  onSearchChange: (search: string) => void;
-  categoryFilter: number[];
-  onCategoryFilterChange: (categoryIds: number[]) => void;
-  accountFilter: number[];
-  onAccountFilterChange: (credentialIds: number[]) => void;
+  isFetching?: boolean;
+  hasFilters: boolean;
   page: number;
   onPageChange: (page: number) => void;
   sortField: TransactionSortField;
   sortOrder: SortOrder;
   onSortChange: (field: TransactionSortField) => void;
-  isFetching?: boolean;
+  /** Selection is dropped whenever this changes (new page, filters or month). */
+  selectionKey: string;
 }
 
-const PAGE_SIZE = 50;
+export const TRANSACTIONS_PAGE_SIZE = 50;
+
+function bcp47(locale: Locale): string {
+  return locale === "he" ? "he-IL" : "en-IL";
+}
+
+/** Local calendar day for a stored UTC instant. */
+function localDayKey(iso: string): string {
+  const d = new Date(iso);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function notCountedReason(txn: TransactionWithCategory): NotCountedReason | null {
+  if (txn.isExcluded) return "excluded";
+  if (txn.kind === "transfer") return "transfer";
+  if (txn.isCounted === false) return "category";
+  return null;
+}
+
+interface DayTotals {
+  spent: number;
+  income: number;
+  notCounted: number;
+}
+
+interface DayGroup {
+  key: string;
+  rows: TransactionWithCategory[];
+}
+
+function groupByDay(rows: TransactionWithCategory[]): DayGroup[] {
+  const groups: DayGroup[] = [];
+  for (const row of rows) {
+    const key = localDayKey(row.date);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.rows.push(row);
+    else groups.push({ key, rows: [row] });
+  }
+  return groups;
+}
+
+function totalsFromRows(rows: TransactionWithCategory[]): DayTotals {
+  const totals: DayTotals = { spent: 0, income: 0, notCounted: 0 };
+  for (const r of rows) {
+    if (notCountedReason(r)) {
+      if (r.chargedAmount < 0) totals.notCounted += -r.chargedAmount;
+    } else if (r.chargedAmount < 0) totals.spent += -r.chargedAmount;
+    else totals.income += r.chargedAmount;
+  }
+  return totals;
+}
 
 export function TransactionsTable({
   transactions,
   total,
-  categories,
-  integrations,
+  days,
   loading,
-  search,
-  onSearchChange,
-  categoryFilter,
-  onCategoryFilterChange,
-  accountFilter,
-  onAccountFilterChange,
+  isFetching = false,
+  hasFilters,
   page,
   onPageChange,
   sortField,
   sortOrder,
   onSortChange,
-  isFetching = false,
+  selectionKey,
 }: TransactionsTableProps) {
   const t = useTranslations("transactions");
   const tCat = useTranslations("categoriesSeeded");
-  const tBanks = useTranslations("banks");
   const locale = useLocale() as Locale;
   const queryClient = useQueryClient();
   const [updatingId, setUpdatingId] = useState<number | null>(null);
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [selection, setSelection] = useState<{ key: string; ids: number[] }>({
+    key: selectionKey,
+    ids: [],
+  });
+  const totalPages = Math.ceil(total / TRANSACTIONS_PAGE_SIZE);
+  const grouped = sortField === "date";
 
+  const incomeCategoriesQuery = useQuery({
+    queryKey: ["categories", "income"],
+    queryFn: () => getCategories("income"),
+  });
+  const expenseCategoriesQuery = useQuery({
+    queryKey: ["categories", "expense"],
+    queryFn: () => getCategories("expense"),
+  });
+  const incomeCategories = incomeCategoriesQuery.data ?? [];
+  const expenseCategories = expenseCategoriesQuery.data ?? [];
+
+  const categoriesFor = (txn: TransactionWithCategory): Category[] =>
+    txn.chargedAmount > 0 ? incomeCategories : expenseCategories;
+
+  const selectedIdSet = new Set(selection.key === selectionKey ? selection.ids : []);
+  const selectedRows = transactions.filter((r) => selectedIdSet.has(r.id));
+  const allOnPageSelected =
+    transactions.length > 0 && selectedRows.length === transactions.length;
+
+  const setSelectedIds = (ids: number[]) => setSelection({ key: selectionKey, ids });
+  const toggleRow = (id: number) =>
+    setSelectedIds(
+      selectedIdSet.has(id)
+        ? [...selectedIdSet].filter((x) => x !== id)
+        : [...selectedIdSet, id]
+    );
+  const toggleAll = () =>
+    setSelectedIds(allOnPageSelected ? [] : transactions.map((r) => r.id));
+
+  const invalidateAll = () => {
+    for (const key of [
+      "transactions",
+      "summary",
+      "transactions-summary",
+      "home",
+      "categories",
+      "excluded-merchants",
+    ]) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  };
+
+  const runRowAction = async (txnId: number, action: () => Promise<unknown>) => {
+    setUpdatingId(txnId);
+    try {
+      await action();
+      invalidateAll();
+      return true;
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : t("actionFailed"));
+      return false;
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const actions: RowActions = {
+    changeCategory: (txn, categoryId) =>
+      void runRowAction(txn.id, () => updateTransactionCategory(txn.id, categoryId)),
+    approve: (txn) =>
+      void runRowAction(txn.id, () => approveTransactionCategory(txn.id)),
+    changeKind: (txn, kind) =>
+      void runRowAction(txn.id, () => setTransactionKind(txn.id, kind)),
+    toggleExcluded: async (txn, alwaysForMerchant = false) => {
+      const next = !txn.isExcluded;
+      const ok = await runRowAction(txn.id, () =>
+        setTransactionExcluded(txn.id, next, alwaysForMerchant)
+      );
+      if (!ok) return;
+      if (next) {
+        toast.success(
+          alwaysForMerchant
+            ? t("excludeMerchantToast", { merchant: txn.description })
+            : t("excludeToast")
+        );
+      } else {
+        toast.success(t("includeToast"));
+      }
+    },
+  };
+
+  const runBulk = async (
+    rows: TransactionWithCategory[],
+    action: (txn: TransactionWithCategory) => Promise<unknown>
+  ) => {
+    if (rows.length === 0) return;
+    setBulkBusy(true);
+    try {
+      // No bulk endpoint exists; the single-item APIs are cheap local calls.
+      await Promise.all(rows.map(action));
+      toast.success(t("bulkUpdatedToast", { count: rows.length }));
+      setSelectedIds([]);
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : t("actionFailed"));
+    } finally {
+      invalidateAll();
+      setBulkBusy(false);
+    }
+  };
+
+  const dayTotalsByKey = new Map<string, DayTotals>();
+  if (days) {
+    for (const d of days) {
+      const key = localDayKey(d.date);
+      const prev = dayTotalsByKey.get(key) ?? { spent: 0, income: 0, notCounted: 0 };
+      dayTotalsByKey.set(key, {
+        spent: prev.spent + d.spent,
+        income: prev.income + d.income,
+        notCounted: prev.notCounted + d.notCounted,
+      });
+    }
+  }
+
+  const groups: DayGroup[] = grouped
+    ? groupByDay(transactions)
+    : [{ key: "all", rows: transactions }];
+
+  const rowProps = {
+    t,
+    tCat,
+    locale,
+    actions,
+    categoriesFor,
+    updatingId,
+  };
+
+  const sortProps = {
+    activeField: sortField,
+    activeOrder: sortOrder,
+    onSort: onSortChange,
+    sortAscLabel: t("sortAsc"),
+    sortDescLabel: t("sortDesc"),
+  };
+
+  const colCount = grouped ? 6 : 7;
+
+  return (
+    <section className="rounded-2xl border border-border bg-card">
+      {loading ? (
+        <div className="space-y-3 p-4">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <Skeleton key={i} className="h-11 w-full" />
+          ))}
+        </div>
+      ) : transactions.length === 0 ? (
+        <div className="px-6 py-16 text-center text-sm text-muted-foreground">
+          {hasFilters ? t("emptyWithFilters") : t("emptyNoData")}
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "transition-opacity duration-200",
+            isFetching && "opacity-60"
+          )}
+        >
+          {/* Desktop and tablet: a real table. */}
+          <div className="hidden overflow-x-auto rounded-t-2xl md:block">
+            <table className="w-full min-w-[760px] border-collapse text-[13.5px]">
+              <thead>
+                <tr className="border-b border-border">
+                  <th scope="col" className={cn(TABLE_HEAD_CLASS, "w-10 pe-0")}>
+                    <RowCheckbox
+                      checked={allOnPageSelected}
+                      indeterminate={selectedRows.length > 0 && !allOnPageSelected}
+                      onToggle={toggleAll}
+                      label={t("selectAllRows")}
+                    />
+                  </th>
+                  {grouped ? (
+                    <th
+                      scope="col"
+                      aria-sort={sortOrder === "asc" ? "ascending" : "descending"}
+                      className={TABLE_HEAD_CLASS}
+                    >
+                      <span className="inline-flex items-center gap-3">
+                        <SortButton label={t("headerDate")} field="date" {...sortProps} />
+                        <span aria-hidden className="text-border">
+                          /
+                        </span>
+                        <SortButton
+                          label={t("headerMerchant")}
+                          field="description"
+                          {...sortProps}
+                        />
+                      </span>
+                    </th>
+                  ) : (
+                    <>
+                      <SortableTableHead
+                        label={t("headerDate")}
+                        field="date"
+                        className="w-24"
+                        {...sortProps}
+                      />
+                      <SortableTableHead
+                        label={t("headerMerchant")}
+                        field="description"
+                        {...sortProps}
+                      />
+                    </>
+                  )}
+                  <SortableTableHead
+                    label={t("headerCategory")}
+                    field="category_name"
+                    className="w-[210px]"
+                    {...sortProps}
+                  />
+                  <SortableTableHead
+                    label={t("headerAccount")}
+                    field="account"
+                    className="w-[190px]"
+                    {...sortProps}
+                  />
+                  <SortableTableHead
+                    label={t("headerAmount")}
+                    field="charged_amount"
+                    align="end"
+                    className="w-[130px]"
+                    {...sortProps}
+                  />
+                  <th scope="col" className={cn(TABLE_HEAD_CLASS, "w-[116px]")}>
+                    <span className="sr-only">{t("headerActions")}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((group) => (
+                  <Fragment key={group.key}>
+                    {grouped ? (
+                      <tr className="border-b border-border bg-muted/45">
+                        <td
+                          colSpan={colCount - 2}
+                          className="px-3.5 py-[7px] text-xs text-muted-foreground"
+                        >
+                          <DayLabel dayKey={group.key} locale={locale} t={t} />
+                        </td>
+                        <td
+                          colSpan={2}
+                          className="px-3.5 py-[7px] text-end text-xs tabular-nums text-muted-foreground"
+                        >
+                          <DayTotalText
+                            totals={
+                              dayTotalsByKey.get(group.key) ?? totalsFromRows(group.rows)
+                            }
+                            locale={locale}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                    {group.rows.map((txn) => (
+                      <DesktopRow
+                        key={txn.id}
+                        txn={txn}
+                        showDate={!grouped}
+                        selected={selectedIdSet.has(txn.id)}
+                        onToggleSelected={() => toggleRow(txn.id)}
+                        {...rowProps}
+                      />
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Phone: two-line rows. */}
+          <ul className="md:hidden">
+            {groups.map((group) => (
+              <Fragment key={group.key}>
+                {grouped ? (
+                  <li className="flex items-center justify-between gap-3 border-b border-border bg-muted/45 px-4 py-2 text-xs text-muted-foreground first:rounded-t-2xl">
+                    <span className="min-w-0 truncate">
+                      <DayLabel dayKey={group.key} locale={locale} t={t} />
+                    </span>
+                    <span className="shrink-0 tabular-nums">
+                      <DayTotalText
+                        totals={dayTotalsByKey.get(group.key) ?? totalsFromRows(group.rows)}
+                        locale={locale}
+                      />
+                    </span>
+                  </li>
+                ) : null}
+                {group.rows.map((txn) => (
+                  <MobileRow
+                    key={txn.id}
+                    txn={txn}
+                    showDate={!grouped}
+                    selected={selectedIdSet.has(txn.id)}
+                    onToggleSelected={() => toggleRow(txn.id)}
+                    {...rowProps}
+                  />
+                ))}
+              </Fragment>
+            ))}
+          </ul>
+
+          {totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {t("paginationRange", {
+                  from: page * TRANSACTIONS_PAGE_SIZE + 1,
+                  to: Math.min((page + 1) * TRANSACTIONS_PAGE_SIZE, total),
+                  total,
+                })}
+              </span>
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onPageChange(page - 1)}
+                  disabled={page === 0}
+                >
+                  {t("previous")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onPageChange(page + 1)}
+                  disabled={page >= totalPages - 1}
+                >
+                  {t("next")}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {selectedRows.length > 0 ? (
+            <BulkBar
+              rows={selectedRows}
+              busy={bulkBusy}
+              locale={locale}
+              t={t}
+              tCat={tCat}
+              expenseCategories={expenseCategories}
+              incomeCategories={incomeCategories}
+              onSetCategory={(categoryId) =>
+                runBulk(selectedRows, (r) => updateTransactionCategory(r.id, categoryId))
+              }
+              onSetExcluded={(excluded) =>
+                runBulk(
+                  selectedRows.filter((r) => r.isExcluded !== excluded),
+                  (r) => setTransactionExcluded(r.id, excluded)
+                )
+              }
+              onClear={() => setSelectedIds([])}
+            />
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface RowActions {
+  changeCategory: (txn: TransactionWithCategory, categoryId: number) => void;
+  approve: (txn: TransactionWithCategory) => void;
+  changeKind: (txn: TransactionWithCategory, kind: Kind) => void;
+  toggleExcluded: (txn: TransactionWithCategory, alwaysForMerchant?: boolean) => Promise<void>;
+}
+
+interface RowProps {
+  txn: TransactionWithCategory;
+  showDate: boolean;
+  selected: boolean;
+  onToggleSelected: () => void;
+  t: Translator;
+  tCat: CategoryTranslator;
+  locale: Locale;
+  actions: RowActions;
+  categoriesFor: (txn: TransactionWithCategory) => Category[];
+  updatingId: number | null;
+}
+
+function DesktopRow({
+  txn,
+  showDate,
+  selected,
+  onToggleSelected,
+  t,
+  tCat,
+  locale,
+  actions,
+  categoriesFor,
+  updatingId,
+}: RowProps) {
+  const reason = notCountedReason(txn);
+  const busy = updatingId === txn.id;
+  const canToggleCount = reason === null || reason === "excluded";
+
+  return (
+    <tr
+      className={cn(
+        "group border-b border-border transition-colors last:border-b-0",
+        selected
+          ? "bg-primary/[0.07]"
+          : "hover:bg-muted/40 has-[[aria-expanded=true]]:bg-muted/40",
+        busy && "opacity-60"
+      )}
+    >
+      <td className="w-10 py-2.5 ps-3.5 pe-0 align-middle">
+        <RowCheckbox
+          checked={selected}
+          onToggle={onToggleSelected}
+          label={t("selectRow", { merchant: txn.description })}
+        />
+      </td>
+      {showDate ? (
+        <td className="px-3.5 py-2.5 align-middle text-[13px] tabular-nums whitespace-nowrap text-muted-foreground">
+          {new Date(txn.date).toLocaleDateString(bcp47(locale), {
+            day: "numeric",
+            month: "short",
+          })}
+        </td>
+      ) : null}
+      <td className="max-w-0 px-3.5 py-2.5 align-middle">
+        <MerchantText txn={txn} t={t} muted={reason !== null} />
+      </td>
+      <td className="px-3.5 py-2.5 align-middle">
+        <CategoryMenu
+          txn={txn}
+          t={t}
+          tCat={tCat}
+          categories={categoriesFor(txn)}
+          actions={actions}
+          disabled={busy}
+          triggerClassName="max-w-[196px] rounded-full"
+        >
+          <RowCategoryChip txn={txn} reason={reason} t={t} tCat={tCat} />
+        </CategoryMenu>
+      </td>
+      <td
+        className={cn(
+          "max-w-[190px] px-3.5 py-2.5 align-middle text-[13px]",
+          reason !== null && "text-muted-foreground"
+        )}
+      >
+        <AccountMark
+          provider={txn.provider}
+          accountLabel={txn.accountLabel}
+          accountNumber={txn.accountNumber}
+        />
+      </td>
+      <td className="px-3.5 py-2.5 text-end align-middle">
+        <AmountText txn={txn} muted={reason !== null} locale={locale} />
+      </td>
+      <td className="px-2 py-2.5 text-end align-middle whitespace-nowrap">
+        <div className="inline-flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 group-has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100">
+          <CategoryMenu
+            txn={txn}
+            t={t}
+            tCat={tCat}
+            categories={categoriesFor(txn)}
+            actions={actions}
+            disabled={busy}
+            triggerClassName={ICON_BUTTON_CLASS}
+            triggerLabel={t("actionChangeCategory")}
+          >
+            <Tag className="h-4 w-4" />
+          </CategoryMenu>
+          {canToggleCount ? (
+            <button
+              type="button"
+              className={ICON_BUTTON_CLASS}
+              disabled={busy}
+              onClick={() => void actions.toggleExcluded(txn)}
+              aria-label={txn.isExcluded ? t("actionCountAgain") : t("actionDontCount")}
+              title={txn.isExcluded ? t("actionCountAgain") : t("actionDontCount")}
+            >
+              {txn.isExcluded ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            </button>
+          ) : null}
+          <RowMoreMenu
+            txn={txn}
+            t={t}
+            tCat={tCat}
+            categories={categoriesFor(txn)}
+            actions={actions}
+            disabled={busy}
+            includeCategory={false}
+          />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function MobileRow({
+  txn,
+  showDate,
+  selected,
+  onToggleSelected,
+  t,
+  tCat,
+  locale,
+  actions,
+  categoriesFor,
+  updatingId,
+}: RowProps) {
+  const reason = notCountedReason(txn);
+  const busy = updatingId === txn.id;
+
+  return (
+    <li
+      className={cn(
+        "flex gap-3 border-b border-border px-4 py-3 last:border-b-0",
+        selected && "bg-primary/[0.07]",
+        busy && "opacity-60"
+      )}
+    >
+      <div className="pt-0.5">
+        <RowCheckbox
+          checked={selected}
+          onToggle={onToggleSelected}
+          label={t("selectRow", { merchant: txn.description })}
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-3">
+          <div
+            className={cn(
+              "min-w-0 truncate text-sm font-medium",
+              reason !== null && "text-muted-foreground"
+            )}
+          >
+            <bdi>{txn.description}</bdi>
+          </div>
+          <AmountText txn={txn} muted={reason !== null} locale={locale} compact />
+        </div>
+        <div className="mt-1.5 flex min-w-0 items-center gap-2">
+          <CategoryMenu
+            txn={txn}
+            t={t}
+            tCat={tCat}
+            categories={categoriesFor(txn)}
+            actions={actions}
+            disabled={busy}
+            triggerClassName="min-w-0 max-w-[55%] shrink rounded-full"
+          >
+            <RowCategoryChip txn={txn} reason={reason} t={t} tCat={tCat} />
+          </CategoryMenu>
+          <AccountMark
+            provider={txn.provider}
+            accountLabel={txn.accountLabel}
+            accountNumber={txn.accountNumber}
+            size="sm"
+            hideLabel
+            className="text-xs text-muted-foreground"
+          />
+          {showDate ? (
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {new Date(txn.date).toLocaleDateString(bcp47(locale), {
+                day: "numeric",
+                month: "short",
+              })}
+            </span>
+          ) : null}
+          <div className="ms-auto shrink-0">
+            <RowMoreMenu
+              txn={txn}
+              t={t}
+              tCat={tCat}
+              categories={categoriesFor(txn)}
+              actions={actions}
+              disabled={busy}
+              includeCategory
+            />
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+const ICON_BUTTON_CLASS =
+  "inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-card hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 aria-expanded:bg-card aria-expanded:text-foreground";
+
+function MerchantText({
+  txn,
+  t,
+  muted,
+}: {
+  txn: TransactionWithCategory;
+  t: Translator;
+  muted: boolean;
+}) {
+  const details: string[] = [];
+  if (txn.memo && txn.memo.trim() !== "") details.push(txn.memo.trim());
+  if (txn.type === "installments" && txn.installmentNumber && txn.installmentTotal) {
+    details.push(
+      t("rowInstallment", { n: txn.installmentNumber, total: txn.installmentTotal })
+    );
+  }
+  return (
+    <div className="flex min-w-0 flex-col">
+      <span
+        className={cn("truncate font-medium", muted && "text-muted-foreground")}
+        title={txn.description}
+      >
+        <bdi>{txn.description}</bdi>
+      </span>
+      {details.length > 0 ? (
+        <span
+          className="truncate font-mono text-[11px] text-muted-foreground"
+          title={details.join(" · ")}
+        >
+          <bdi>{details.join(" · ")}</bdi>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function AmountText({
+  txn,
+  muted,
+  locale,
+  compact = false,
+}: {
+  txn: TransactionWithCategory;
+  muted: boolean;
+  locale: Locale;
+  compact?: boolean;
+}) {
+  const isIncome = txn.chargedAmount > 0;
+  const foreign =
+    txn.originalCurrency &&
+    txn.originalCurrency !== "ILS" &&
+    txn.originalAmount !== txn.chargedAmount
+      ? formatCurrency(txn.originalAmount, txn.originalCurrency, locale)
+      : null;
+  return (
+    <span className="inline-flex shrink-0 flex-col items-end">
+      <span
+        className={cn(
+          "tabular-nums whitespace-nowrap",
+          compact ? "text-sm" : "text-[13.5px]",
+          muted ? "font-normal text-muted-foreground" : "font-medium text-foreground"
+        )}
+        style={!muted && isIncome ? { color: INCOME_INK } : undefined}
+      >
+        <bdi>
+          {isIncome ? "+" : ""}
+          {formatCurrency(txn.chargedAmount, "ILS", locale)}
+        </bdi>
+      </span>
+      {foreign && !compact ? (
+        <span className="text-[11px] tabular-nums text-muted-foreground">
+          <bdi>{foreign}</bdi>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function RowCategoryChip({
+  txn,
+  reason,
+  t,
+  tCat,
+}: {
+  txn: TransactionWithCategory;
+  reason: NotCountedReason | null;
+  t: Translator;
+  tCat: CategoryTranslator;
+}) {
+  const name = txn.categoryName ? translateCategoryName(txn.categoryName, tCat) : null;
+
+  if (reason !== null) {
+    return (
+      <CategoryChip
+        variant="notCounted"
+        label={
+          txn.cardBillLabel
+            ? t("chipCardBill", { card: txn.cardBillLabel })
+            : name ?? (txn.kind === "transfer" ? t("chipTransfer") : t("rowUncategorized"))
+        }
+        suffix={t("chipNotCounted")}
+        notCountedReason={reason}
+      />
+    );
+  }
+  let variant: CategoryChipVariant = "normal";
+  if (!name) variant = "uncategorized";
+  else if (txn.needsReview) variant = "lowConfidence";
+
+  return (
+    <span
+      className="inline-flex max-w-full"
+      title={
+        variant === "lowConfidence"
+          ? txn.aiConfidence != null
+            ? t("chipAiGuess", { score: txn.aiConfidence })
+            : t("chipAiGuessUnsure")
+          : undefined
+      }
+    >
+      <CategoryChip
+        variant={variant}
+        label={name ?? t("rowUncategorized")}
+        color={txn.categoryColor}
+      />
+    </span>
+  );
+}
+
+interface MenuBaseProps {
+  txn: TransactionWithCategory;
+  t: Translator;
+  tCat: CategoryTranslator;
+  categories: Category[];
+  actions: RowActions;
+  disabled: boolean;
+}
+
+function CategoryMenuItems({ txn, t, tCat, categories, actions }: Omit<MenuBaseProps, "disabled">) {
+  const currentName = txn.categoryName
+    ? translateCategoryName(txn.categoryName, tCat)
+    : null;
+  return (
+    <>
+      {txn.needsReview && currentName ? (
+        <>
+          <DropdownMenuItem onClick={() => actions.approve(txn)} title={t("rowApproveTooltip")}>
+            <Check className="h-3.5 w-3.5" style={{ color: INCOME_INK }} />
+            {t("categoryMenuKeep", { category: currentName })}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
+      ) : null}
+      {categories.map((cat) => (
+        <DropdownMenuItem
+          key={cat.id}
+          onClick={() => {
+            if (cat.id !== txn.categoryId) actions.changeCategory(txn, cat.id);
+          }}
+        >
+          <span
+            className="size-2 shrink-0 rounded-full"
+            style={{ backgroundColor: cat.color }}
+          />
+          <span className="min-w-0 flex-1 truncate">
+            {translateCategoryName(cat.name, tCat)}
+          </span>
+          {cat.id === txn.categoryId ? (
+            <Check className="h-3.5 w-3.5 text-muted-foreground" />
+          ) : null}
+        </DropdownMenuItem>
+      ))}
+    </>
+  );
+}
+
+function CategoryMenu({
+  children,
+  triggerClassName,
+  triggerLabel,
+  ...menu
+}: MenuBaseProps & {
+  children: React.ReactNode;
+  triggerClassName?: string;
+  triggerLabel?: string;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(
+          "inline-flex outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed",
+          triggerClassName
+        )}
+        disabled={menu.disabled}
+        aria-label={triggerLabel}
+        title={triggerLabel}
+      >
+        {children}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 w-56">
+        <CategoryMenuItems {...menu} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function RowMoreMenu({
+  includeCategory,
+  ...menu
+}: MenuBaseProps & { includeCategory: boolean }) {
+  const { txn, t, actions, disabled } = menu;
   const otherKinds: Record<Kind, Array<{ value: Kind; label: string }>> = {
     expense: [
       { value: "income", label: t("markAsIncome") },
@@ -141,592 +962,249 @@ export function TransactionsTable({
     ],
   };
 
-  const handleCategoryChange = async (txnId: number, categoryId: number) => {
-    setUpdatingId(txnId);
-    try {
-      await updateTransactionCategory(txnId, categoryId);
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["summary"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions-summary"] });
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
-  const handleKindChange = async (txnId: number, next: Kind) => {
-    setUpdatingId(txnId);
-    try {
-      await setTransactionKind(txnId, next);
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["summary"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
-  const handleApprove = async (txnId: number) => {
-    setUpdatingId(txnId);
-    try {
-      await approveTransactionCategory(txnId);
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["summary"] });
-      queryClient.invalidateQueries({ queryKey: ["transactions-summary"] });
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
-  const invalidateAfterExclude = () => {
-    queryClient.invalidateQueries({ queryKey: ["transactions"] });
-    queryClient.invalidateQueries({ queryKey: ["summary"] });
-    queryClient.invalidateQueries({ queryKey: ["transactions-summary"] });
-    queryClient.invalidateQueries({ queryKey: ["home"] });
-    queryClient.invalidateQueries({ queryKey: ["categories"] });
-    queryClient.invalidateQueries({ queryKey: ["excluded-merchants"] });
-  };
-
-  const handleExcludeToggle = async (
-    txn: TransactionWithCategory,
-    alwaysForMerchant = false,
-  ) => {
-    const nextExcluded = !txn.isExcluded;
-    setUpdatingId(txn.id);
-    try {
-      await setTransactionExcluded(txn.id, nextExcluded, alwaysForMerchant);
-      invalidateAfterExclude();
-      if (nextExcluded) {
-        toast.success(
-          alwaysForMerchant
-            ? t("excludeMerchantToast", { merchant: txn.description })
-            : t("excludeToast"),
-        );
-      } else {
-        toast.success(t("includeToast"));
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed");
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
-  const incomeCategoriesQuery = useQuery({
-    queryKey: ["categories", "income"],
-    queryFn: () => getCategories("income"),
-  });
-  const expenseCategoriesQuery = useQuery({
-    queryKey: ["categories", "expense"],
-    queryFn: () => getCategories("expense"),
-  });
-
-  const categoriesForKind = (rowKind: Kind): Category[] => {
-    if (rowKind === "income") return incomeCategoriesQuery.data ?? [];
-    if (rowKind === "expense") return expenseCategoriesQuery.data ?? [];
-    return [];
-  };
-
-  const accountOptions = integrations
-    .map((integration) => {
-      const info = BANK_PROVIDERS.find((b) => b.id === integration.provider);
-      const providerName = translateProviderName(
-        integration.provider,
-        info?.name ?? integration.provider,
-        tBanks
-      );
-      const { primary } = getAccountDisplayLabel(
-        providerName,
-        integration.label
-      );
-      return { integration, info, providerName, primary };
-    })
-    .sort((a, b) => a.primary.localeCompare(b.primary));
-
-  const showAccountFilter = accountOptions.length > 1;
-
-  const toggleFilterId = (ids: number[], id: number): number[] =>
-    ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
-
-  const accountLabels = accountFilter
-    .map(
-      (id) =>
-        accountOptions.find((o) => o.integration.id === id)?.primary
-    )
-    .filter((name): name is string => name != null);
-
-  const accountDisplayValue = formatMultiFilterDisplay(
-    accountLabels,
-    t("filterAny"),
-    (count) => t("filterSelectedCount", { count })
-  );
-
-  const categoryLabels = categoryFilter
-    .map((id) => categories.find((c) => c.id === id))
-    .filter((c): c is Category => c != null)
-    .map((c) => translateCategoryName(c.name, tCat));
-
-  const categoryDisplayValue = formatMultiFilterDisplay(
-    categoryLabels,
-    t("filterAny"),
-    (count) => t("filterSelectedCount", { count })
-  );
-
-  const hasActiveFilters =
-    categoryFilter.length > 0 || accountFilter.length > 0;
-
-  const handleClearFilters = () => {
-    onCategoryFilterChange([]);
-    onAccountFilterChange([]);
-    onPageChange(0);
-  };
-
-  const allCategoryIds = [
-    ...new Set(
-      categories.flatMap((c) => getCategoryDescendantIds(c.id, categories))
-    ),
-  ];
-  const allAccountIds = accountOptions.map((o) => o.integration.id);
-
-  const renderCategoryFilterOptions = (
-    parentId: number | null,
-    depth: number
-  ): React.ReactNode[] => {
-    const items = categories
-      .filter((c) => c.parentId === parentId)
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const nodes: React.ReactNode[] = [];
-    for (const cat of items) {
-      const hasChildren = categories.some((c) => c.parentId === cat.id);
-      const name = translateCategoryName(cat.name, tCat);
-      nodes.push(
-        <MultiFilterOption
-          key={cat.id}
-          selected={isCategoryFilterChecked(
-            cat.id,
-            categoryFilter,
-            categories
-          )}
-          onToggle={() =>
-            onCategoryFilterChange(
-              toggleCategoryFilterSelection(
-                categoryFilter,
-                cat.id,
-                categories
-              )
-            )
-          }
-          className={depth > 0 ? "ps-2" : undefined}
-        >
-          <div
-            className={cn(
-              "flex items-center gap-2",
-              hasChildren && "font-semibold"
-            )}
-            style={{ paddingInlineStart: depth > 0 ? depth * 12 : 0 }}
-          >
-            <div
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: cat.color }}
-            />
-            {name}
-          </div>
-        </MultiFilterOption>
-      );
-      nodes.push(...renderCategoryFilterOptions(cat.id, depth + 1));
-    }
-    return nodes;
-  };
-
   return (
-    <Card className="rounded-2xl border border-border bg-card shadow-none">
-      <CardHeader>
-        <div className="flex items-center justify-between gap-4">
-          <CardTitle className="font-serif text-2xl font-normal">
-            {t("pageTitle")}
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder={t("search")}
-              value={search}
-              onChange={(e) => {
-                onSearchChange(e.target.value);
-                onPageChange(0);
-              }}
-              className="h-8 w-[200px]"
-            />
-            {showAccountFilter ? (
-              <TransactionMultiFilter
-                label={t("filterAccount")}
-                icon={Wallet}
-                displayValue={accountDisplayValue}
-                triggerClassName="w-[200px]"
-                selectAllLabel={t("filterSelectAll")}
-                clearLabel={t("filterClearSelection")}
-                onSelectAll={() => onAccountFilterChange(allAccountIds)}
-                onClear={() => onAccountFilterChange([])}
-              >
-                {accountOptions.map(({ integration, info, primary }) => (
-                  <MultiFilterOption
-                    key={integration.id}
-                    selected={accountFilter.includes(integration.id)}
-                    onToggle={() =>
-                      onAccountFilterChange(
-                        toggleFilterId(accountFilter, integration.id)
-                      )
-                    }
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      {info ? (
-                        <ProviderBadge
-                          color={info.color}
-                          name={primary}
-                          domain={info.domain}
-                          size={16}
-                          radius={5}
-                        />
-                      ) : null}
-                      <span className="truncate">{primary}</span>
-                    </div>
-                  </MultiFilterOption>
-                ))}
-              </TransactionMultiFilter>
-            ) : null}
-            <TransactionMultiFilter
-              label={t("filterCategory")}
-              icon={Tags}
-              displayValue={categoryDisplayValue}
-              selectAllLabel={t("filterSelectAll")}
-              clearLabel={t("filterClearSelection")}
-              onSelectAll={() => onCategoryFilterChange(allCategoryIds)}
-              onClear={() => onCategoryFilterChange([])}
-            >
-              {renderCategoryFilterOptions(null, 0)}
-            </TransactionMultiFilter>
-            {hasActiveFilters ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 shrink-0 px-2 text-xs text-muted-foreground"
-                onClick={handleClearFilters}
-              >
-                {t("filterClear")}
-              </Button>
-            ) : null}
-          </div>
-        </div>
-        {hasActiveFilters || search.trim().length > 0 ? (
-          <p className="mt-2 text-xs text-muted-foreground">
-            {t("filterScopedToList")}
-          </p>
-        ) : null}
-      </CardHeader>
-      <CardContent
-        className={cn(
-          isFetching &&
-            !loading &&
-            "opacity-60 transition-opacity duration-200"
-        )}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={ICON_BUTTON_CLASS}
+        disabled={disabled}
+        aria-label={t("actionMore")}
+        title={t("actionMore")}
       >
-        {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
-        ) : transactions.length === 0 ? (
-          <div className="py-12 text-center text-sm text-muted-foreground">
-            {search || categoryFilter.length > 0 || accountFilter.length > 0
-              ? t("emptyWithFilters")
-              : t("emptyNoData")}
-          </div>
+        <MoreHorizontal className="h-4 w-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60">
+        {includeCategory && menu.categories.length > 0 ? (
+          <>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Tag className="h-3.5 w-3.5" />
+                {t("actionChangeCategory")}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-80 w-56">
+                <CategoryMenuItems {...menu} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
+        {txn.isExcluded ? (
+          <DropdownMenuItem onClick={() => void actions.toggleExcluded(txn, false)}>
+            <Eye className="h-3.5 w-3.5" />
+            {t("includeAction")}
+          </DropdownMenuItem>
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[32px]" />
-                  <SortableTableHead
-                    label={t("headerDate")}
-                    field="date"
-                    activeField={sortField}
-                    activeOrder={sortOrder}
-                    onSort={onSortChange}
-                    className="w-[100px]"
-                    sortAscLabel={t("sortAsc")}
-                    sortDescLabel={t("sortDesc")}
-                  />
-                  <SortableTableHead
-                    label={t("headerDescription")}
-                    field="description"
-                    activeField={sortField}
-                    activeOrder={sortOrder}
-                    onSort={onSortChange}
-                    sortAscLabel={t("sortAsc")}
-                    sortDescLabel={t("sortDesc")}
-                  />
-                  <SortableTableHead
-                    label={t("headerCategory")}
-                    field="category_name"
-                    activeField={sortField}
-                    activeOrder={sortOrder}
-                    onSort={onSortChange}
-                    className="w-[150px]"
-                    sortAscLabel={t("sortAsc")}
-                    sortDescLabel={t("sortDesc")}
-                  />
-                  <SortableTableHead
-                    label={t("headerAccount")}
-                    field="account"
-                    activeField={sortField}
-                    activeOrder={sortOrder}
-                    onSort={onSortChange}
-                    className="hidden w-[130px] md:table-cell"
-                    sortAscLabel={t("sortAsc")}
-                    sortDescLabel={t("sortDesc")}
-                  />
-                  <SortableTableHead
-                    label={t("headerAmount")}
-                    field="charged_amount"
-                    activeField={sortField}
-                    activeOrder={sortOrder}
-                    onSort={onSortChange}
-                    className="w-[120px]"
-                    align="end"
-                    sortAscLabel={t("sortAsc")}
-                    sortDescLabel={t("sortDesc")}
-                  />
-                  <TableHead className="w-[40px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {transactions.map((txn) => {
-                  const isIncome = txn.chargedAmount > 0;
-                  const directionColor = isIncome
-                    ? "var(--status-on-track)"
-                    : "var(--status-over)";
-                  const categoryKind: Kind = isIncome ? "income" : "expense";
-                  const categoryName = txn.categoryName
-                    ? translateCategoryName(txn.categoryName, tCat)
-                    : t("rowUncategorized");
-                  return (
-                    <TableRow
-                      key={txn.id}
-                      className={cn(
-                        "transition-colors duration-200 hover:bg-muted/50",
-                        txn.isExcluded && "opacity-50",
-                      )}
-                    >
-                      <TableCell>
-                        <div style={{ color: directionColor }}>
-                          {isIncome ? (
-                            <ArrowUpRight className="h-4 w-4" />
-                          ) : (
-                            <ArrowDownRight className="h-4 w-4" />
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm tabular-nums text-muted-foreground">
-                        {formatDate(txn.date)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="font-medium">{txn.description}</div>
-                          {txn.needsReview && (
-                            <span
-                              className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                              style={{
-                                backgroundColor:
-                                  "color-mix(in oklch, var(--status-heads-up) 18%, transparent)",
-                                color: "var(--status-heads-up)",
-                              }}
-                              title={
-                                txn.aiConfidence != null
-                                  ? t("rowReviewTooltipConfidence", { score: txn.aiConfidence })
-                                  : t("rowReviewTooltipUnsure")
-                              }
-                            >
-                              <HelpCircle className="h-3 w-3" />
-                              {t("rowReview")}
-                              {txn.aiConfidence != null && (
-                                <span className="ms-0.5 tabular-nums">
-                                  {txn.aiConfidence}/7
-                                </span>
-                              )}
-                            </span>
-                          )}
-                        </div>
-                        {txn.memo && (
-                          <div className="text-xs text-muted-foreground">
-                            {txn.memo}
-                          </div>
-                        )}
-                        {txn.type === "installments" &&
-                          txn.installmentNumber &&
-                          txn.installmentTotal && (
-                            <div className="text-xs text-muted-foreground">
-                              {t("rowInstallment", {
-                                n: txn.installmentNumber,
-                                total: txn.installmentTotal,
-                              })}
-                            </div>
-                          )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              className="inline-flex"
-                              disabled={updatingId === txn.id}
-                            >
-                              <Badge
-                                variant="outline"
-                                className="cursor-pointer transition-colors hover:bg-accent"
-                                style={
-                                  txn.categoryColor
-                                    ? {
-                                        borderColor: txn.categoryColor + "40",
-                                        backgroundColor: txn.categoryColor + "15",
-                                        color: txn.categoryColor,
-                                      }
-                                    : undefined
-                                }
-                              >
-                                {categoryName}
-                              </Badge>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start">
-                              {categoriesForKind(categoryKind).map((cat) => (
-                                <DropdownMenuItem
-                                  key={cat.id}
-                                  onClick={() =>
-                                    handleCategoryChange(txn.id, cat.id)
-                                  }
-                                >
-                                  <div
-                                    className="me-2 h-2 w-2 rounded-full"
-                                    style={{ backgroundColor: cat.color }}
-                                  />
-                                  {translateCategoryName(cat.name, tCat)}
-                                </DropdownMenuItem>
-                              ))}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                          {txn.needsReview && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleApprove(txn.id)}
-                              disabled={updatingId === txn.id}
-                              className="h-6 gap-1 px-2 text-[11px] font-medium"
-                              style={{
-                                borderColor:
-                                  "color-mix(in oklch, var(--status-on-track) 35%, transparent)",
-                                color: "var(--status-on-track)",
-                              }}
-                              title={t("rowApproveTooltip")}
-                            >
-                              <Check className="h-3 w-3" />
-                              {t("rowApprove")}
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        <TransactionSourceCell
-                          provider={txn.provider}
-                          accountLabel={txn.accountLabel}
-                        />
-                      </TableCell>
-                      <TableCell
-                        className="text-end font-medium tabular-nums"
-                        style={{ color: directionColor }}
-                      >
-                        {formatCurrency(txn.chargedAmount, "ILS", locale)}
-                      </TableCell>
-                      <TableCell className="text-end">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                            disabled={updatingId === txn.id}
-                            aria-label={t("rowActions")}
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {otherKinds[txn.kind].map((opt) => (
-                              <DropdownMenuItem
-                                key={opt.value}
-                                onClick={() => handleKindChange(txn.id, opt.value)}
-                              >
-                                {opt.label}
-                              </DropdownMenuItem>
-                            ))}
-                            {txn.isExcluded ? (
-                              <DropdownMenuItem
-                                onClick={() => handleExcludeToggle(txn, false)}
-                              >
-                                <Eye className="me-2 h-3.5 w-3.5" />
-                                {t("includeAction")}
-                              </DropdownMenuItem>
-                            ) : (
-                              <>
-                                <DropdownMenuItem
-                                  onClick={() => handleExcludeToggle(txn, false)}
-                                >
-                                  <EyeOff className="me-2 h-3.5 w-3.5" />
-                                  {t("excludeAction")}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleExcludeToggle(txn, true)}
-                                >
-                                  <EyeOff className="me-2 h-3.5 w-3.5" />
-                                  {t("excludeMerchantAction")}
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between pt-4">
-                <span className="text-xs text-muted-foreground">
-                  {t("paginationRange", {
-                    from: page * PAGE_SIZE + 1,
-                    to: Math.min((page + 1) * PAGE_SIZE, total),
-                    total,
-                  })}
-                </span>
-                <div className="flex gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onPageChange(page - 1)}
-                    disabled={page === 0}
-                  >
-                    {t("previous")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onPageChange(page + 1)}
-                    disabled={page >= totalPages - 1}
-                  >
-                    {t("next")}
-                  </Button>
-                </div>
-              </div>
-            )}
+            <DropdownMenuItem onClick={() => void actions.toggleExcluded(txn, false)}>
+              <EyeOff className="h-3.5 w-3.5" />
+              {t("excludeAction")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void actions.toggleExcluded(txn, true)}>
+              <EyeOff className="h-3.5 w-3.5" />
+              {t("excludeMerchantAction")}
+            </DropdownMenuItem>
           </>
         )}
-      </CardContent>
-    </Card>
+        <DropdownMenuSeparator />
+        {otherKinds[txn.kind].map((opt) => (
+          <DropdownMenuItem key={opt.value} onClick={() => actions.changeKind(txn, opt.value)}>
+            <ArrowLeftRight className="h-3.5 w-3.5" />
+            {opt.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function RowCheckbox({
+  checked,
+  indeterminate = false,
+  onToggle,
+  label,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  const on = checked || indeterminate;
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={indeterminate ? "mixed" : checked}
+      aria-label={label}
+      onClick={onToggle}
+      className={cn(
+        "relative flex size-4 items-center justify-center rounded-[4px] border-[1.5px] outline-none transition-colors after:absolute after:-inset-2.5 focus-visible:ring-3 focus-visible:ring-ring/50",
+        on
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-foreground/25 bg-card hover:border-foreground/45"
+      )}
+    >
+      {checked ? (
+        <Check className="size-3" strokeWidth={3} />
+      ) : indeterminate ? (
+        <Minus className="size-3" strokeWidth={3} />
+      ) : null}
+    </button>
+  );
+}
+
+function DayLabel({
+  dayKey,
+  locale,
+  t,
+}: {
+  dayKey: string;
+  locale: Locale;
+  t: Translator;
+}) {
+  const [y, m, d] = dayKey.split("-").map(Number) as [number, number, number];
+  const date = new Date(y, m - 1, d);
+  const now = new Date();
+  const todayKey = localDayKey(now.toISOString());
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const yesterdayKey = localDayKey(yesterday.toISOString());
+  const bcp = bcp47(locale);
+  const weekday = date.toLocaleDateString(bcp, { weekday: "long" });
+  const dayMonth = date.toLocaleDateString(bcp, {
+    day: "numeric",
+    month: "long",
+    ...(y !== now.getFullYear() ? { year: "numeric" } : {}),
+  });
+
+  if (dayKey === todayKey || dayKey === yesterdayKey) {
+    return (
+      <>
+        <b className="font-semibold text-foreground">
+          {dayKey === todayKey ? t("dayToday") : t("dayYesterday")}
+        </b>
+        {" · "}
+        {weekday}, {dayMonth}
+      </>
+    );
+  }
+  return (
+    <>
+      <b className="font-semibold text-foreground">{weekday}</b>, {dayMonth}
+    </>
+  );
+}
+
+function DayTotalText({ totals, locale }: { totals: DayTotals; locale: Locale }) {
+  const parts: React.ReactNode[] = [];
+  if (totals.spent > 0) {
+    parts.push(
+      <span key="spent" className="text-foreground">
+        {formatCurrency(totals.spent, "ILS", locale)}
+      </span>
+    );
+  }
+  if (totals.income > 0) {
+    parts.push(
+      <span key="income" style={{ color: INCOME_INK }}>
+        <bdi>+{formatCurrency(totals.income, "ILS", locale)}</bdi>
+      </span>
+    );
+  }
+  if (parts.length === 0 && totals.notCounted > 0) {
+    parts.push(<span key="nc">{formatCurrency(totals.notCounted, "ILS", locale)}</span>);
+  }
+  return (
+    <>
+      {parts.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 ? " · " : null}
+          {p}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+function BulkBar({
+  rows,
+  busy,
+  locale,
+  t,
+  tCat,
+  expenseCategories,
+  incomeCategories,
+  onSetCategory,
+  onSetExcluded,
+  onClear,
+}: {
+  rows: TransactionWithCategory[];
+  busy: boolean;
+  locale: Locale;
+  t: Translator;
+  tCat: CategoryTranslator;
+  expenseCategories: Category[];
+  incomeCategories: Category[];
+  onSetCategory: (categoryId: number) => void;
+  onSetExcluded: (excluded: boolean) => void;
+  onClear: () => void;
+}) {
+  const net = rows.reduce((sum, r) => sum + r.chargedAmount, 0);
+  const allExcluded = rows.every((r) => r.isExcluded);
+  const hasIncome = rows.some((r) => r.chargedAmount > 0);
+  const hasExpense = rows.some((r) => r.chargedAmount <= 0);
+  const barButton =
+    "inline-flex h-8 items-center gap-1.5 rounded-md border border-background/25 px-2.5 text-[13px] font-medium text-background outline-none transition-colors hover:bg-background/10 focus-visible:ring-3 focus-visible:ring-background/40 disabled:opacity-50";
+
+  const renderGroup = (label: string, cats: Category[]) => (
+    <DropdownMenuGroup>
+      <DropdownMenuLabel>{label}</DropdownMenuLabel>
+      {cats.map((cat) => (
+        <DropdownMenuItem key={cat.id} onClick={() => onSetCategory(cat.id)}>
+          <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: cat.color }} />
+          {translateCategoryName(cat.name, tCat)}
+        </DropdownMenuItem>
+      ))}
+    </DropdownMenuGroup>
+  );
+
+  return (
+    <div
+      role="region"
+      aria-label={t("bulkSelected", { count: rows.length })}
+      className="sticky bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)] z-20 md:bottom-3 mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-foreground px-3.5 py-2.5 text-[13px] text-background shadow-lg"
+    >
+      <b className="tabular-nums">{t("bulkSelected", { count: rows.length })}</b>
+      <span className="tabular-nums opacity-70">
+        · <bdi>{net > 0 ? "+" : ""}{formatCurrency(net, "ILS", locale)}</bdi>
+      </span>
+      <span className="flex-1" />
+      <DropdownMenu>
+        <DropdownMenuTrigger className={barButton} disabled={busy}>
+          <Tag className="h-3.5 w-3.5" />
+          {t("bulkSetCategory")}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" side="top" className="max-h-80 w-56">
+          {hasExpense ? renderGroup(t("bulkSpendingCategories"), expenseCategories) : null}
+          {hasExpense && hasIncome ? <DropdownMenuSeparator /> : null}
+          {hasIncome ? renderGroup(t("bulkIncomeCategories"), incomeCategories) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <button
+        type="button"
+        className={barButton}
+        disabled={busy}
+        onClick={() => onSetExcluded(!allExcluded)}
+      >
+        {allExcluded ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+        {allExcluded ? t("actionCountAgain") : t("actionDontCount")}
+      </button>
+      <button
+        type="button"
+        className={cn(barButton, "w-8 justify-center px-0")}
+        onClick={onClear}
+        aria-label={t("bulkClear")}
+        title={t("bulkClear")}
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
   );
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCurrency } from "@/lib/formatters";
+import { formatWhole } from "@/components/home/home-format";
 import { translateCategoryName } from "@/lib/i18n-data";
 import type { DashboardSummary } from "@/lib/types";
 import type { Locale } from "@/i18n/routing";
@@ -103,7 +103,7 @@ export function HeroCard({ data, loading, monthLabel }: HeroCardProps) {
 
   const ctaLabel = typicalMonthly
     ? t("setMonthlyTargetWithTypical", {
-        amount: formatCurrency(typicalMonthly, "ILS", locale),
+        amount: formatWhole(typicalMonthly, locale),
       })
     : t("setMonthlyTarget");
 
@@ -119,7 +119,7 @@ export function HeroCard({ data, loading, monthLabel }: HeroCardProps) {
         </span>{" "}
         {t("untilPayday")}
       </p>
-      <h2 className="font-serif text-3xl leading-[1.05] tracking-tighter md:text-4xl lg:text-5xl">
+      <h2 className="text-2xl leading-snug font-semibold tracking-tight text-balance md:text-3xl lg:text-[2.5rem] lg:leading-[1.15]">
         <HeroPhrase
           hasBudget={hasBudget}
           verdict={verdict}
@@ -141,7 +141,7 @@ export function HeroCard({ data, loading, monthLabel }: HeroCardProps) {
                 />
                 <span className="font-medium">{seg.name}</span>
                 <span className="tabular-nums text-muted-foreground">
-                  {formatCurrency(seg.amount, "ILS", locale)} {"·"}{" "}
+                  {formatWhole(seg.amount, locale)} {"·"}{" "}
                   {Math.round(seg.pct)}%
                 </span>
               </div>
@@ -216,14 +216,25 @@ function HeroPhrase({
   locale: Locale;
 }) {
   const t = useTranslations("dashboard");
-  const amount = formatCurrency(displaySpent, "ILS", locale);
-  const budget = formatCurrency(totalBudget, "ILS", locale);
+  const amount = formatWhole(displaySpent, locale);
+  const budget = formatWhole(totalBudget, locale);
 
+  // A pay cycle's label is a date range ("8 Oct – 7 Nov"), which reads badly
+  // mid-sentence, so cycles get their own wording.
+  const isPayCycle = monthLabel.includes("–");
   if (!hasBudget) {
-    return <span>{t("phraseSpentThis", { amount, month: monthLabel })}</span>;
+    return (
+      <span>
+        {isPayCycle
+          ? t("phraseSpentThisCycle", { amount })
+          : t("phraseSpentThis", { amount, month: monthLabel })}
+      </span>
+    );
   }
 
-  const lead = t("phraseLead", { amount, budget, month: monthLabel });
+  const lead = isPayCycle
+    ? t("phraseLeadCycle", { amount, budget })
+    : t("phraseLead", { amount, budget, month: monthLabel });
   const tail =
     verdict === "overBudget"
       ? t("phraseOver")
@@ -256,7 +267,15 @@ function HeroPhrase({
     leadParts.length === 2 ? (
       <>
         {leadParts[0]}
-        <span className="text-[var(--status-on-track)]">{amount}</span>
+        <span
+          className={
+            verdict === "overBudget" || verdict === "headsUp"
+              ? "text-[var(--status-over)]"
+              : "text-[var(--status-on-track)]"
+          }
+        >
+          {amount}
+        </span>
         {leadParts[1]}
       </>
     ) : (
@@ -331,15 +350,15 @@ function PaceGauge({
     verdictText = t("verdictSpentThisMonth");
   } else if (isOverBudget) {
     verdictText = t("verdictOverBudgetBy", {
-      amount: formatCurrency(overBudgetBy, "ILS", locale),
+      amount: formatWhole(overBudgetBy, locale),
     });
   } else if (delta >= 25) {
     verdictText = t("verdictOverSchedule", {
-      amount: formatCurrency(Math.abs(scheduleGap), "ILS", locale),
+      amount: formatWhole(Math.abs(scheduleGap), locale),
     });
   } else if (isAhead) {
     verdictText = t("verdictAheadOfSchedule", {
-      amount: formatCurrency(Math.abs(scheduleGap), "ILS", locale),
+      amount: formatWhole(Math.abs(scheduleGap), locale),
     });
   } else {
     verdictText = t("verdictOnSchedule");
@@ -393,13 +412,13 @@ function PaceGauge({
           />
         )}
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
-        <div className="font-serif text-3xl tabular-nums">
-          {formatCurrency(hasBudget ? budgetedSpent : periodTotal, "ILS", locale)}
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-9 text-center">
+        <div className="text-[1.6rem] leading-none font-semibold tracking-tight tabular-nums">
+          {formatWhole(hasBudget ? budgetedSpent : periodTotal, locale)}
         </div>
         {hasBudget && (
-          <div className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
-            {t("ofBudget", { amount: formatCurrency(totalBudget, "ILS", locale) })}
+          <div className="mt-1.5 text-[11px] text-muted-foreground tabular-nums">
+            {t("ofBudget", { amount: formatWhole(totalBudget, locale) })}
           </div>
         )}
         <div

@@ -15,26 +15,26 @@ interface CardShellProps {
 
 export function CardShell({ label, action, children, className }: CardShellProps) {
   return (
-    <div
+    <section
       className={cn(
-        "flex h-full flex-col rounded-3xl border border-border bg-card p-5 md:p-6",
+        "flex h-full min-w-0 flex-col rounded-xl border border-border bg-card px-5 py-5 shadow-[0_1px_2px_oklch(0.4_0.03_70/0.06),0_8px_24px_-12px_oklch(0.4_0.03_70/0.14)] md:px-[1.375rem]",
         className
       )}
     >
       {(label || action) && (
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-3.5 flex items-center justify-between gap-3">
           {label && (
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <h3 className="truncate text-[11px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
               {label}
             </h3>
           )}
           {action && (
-            <div className="text-xs text-muted-foreground">{action}</div>
+            <div className="shrink-0 text-[12.5px] text-muted-foreground">{action}</div>
           )}
         </div>
       )}
       {children}
-    </div>
+    </section>
   );
 }
 
@@ -42,7 +42,7 @@ export function CardAction({ href, children }: { href: string; children: ReactNo
   return (
     <Link
       href={href}
-      className="underline-offset-4 hover:text-foreground hover:underline"
+      className="whitespace-nowrap rounded-sm underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
     >
       {children}
     </Link>
@@ -60,7 +60,7 @@ export function CardSkeleton({
 }) {
   return (
     <CardShell label={label} className={className}>
-      <Skeleton className="w-full" style={{ height }} />
+      <Skeleton className="w-full rounded-lg" style={{ height }} />
     </CardShell>
   );
 }

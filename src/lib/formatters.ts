@@ -1,4 +1,5 @@
 import type { Locale } from "@/i18n/routing";
+import { AMOUNT_MASK, amountsHidden } from "./privacy";
 
 function bcp47(locale: Locale | "en-IL" | "he-IL" | undefined): string {
   if (!locale) return "en-IL";
@@ -12,6 +13,7 @@ export function formatCurrency(
   currency = "ILS",
   locale?: Locale,
 ): string {
+  if (amountsHidden()) return currency === "ILS" ? `₪${AMOUNT_MASK}` : AMOUNT_MASK;
   const bcp = bcp47(locale);
   if (currency === "ILS") {
     return `₪${Math.abs(amount).toLocaleString(bcp, {

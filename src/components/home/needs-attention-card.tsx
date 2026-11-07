@@ -1,93 +1,59 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
-import { AlertTriangle, CircleHelp, Flag } from "lucide-react";
-import { CardShell } from "./card-shell";
+import { CircleCheck } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import type { HomeNeedsAttention } from "@/lib/types";
+import { CardShell } from "./card-shell";
 
 interface Props {
   data: HomeNeedsAttention;
 }
 
+const strong = (chunks: ReactNode) => (
+  <b className="font-medium text-foreground">{chunks}</b>
+);
+
 export function NeedsAttentionCard({ data }: Props) {
   const t = useTranslations("home");
-  const { uncategorized, lowConfidence, flagged } = data;
-  const total = uncategorized + lowConfidence + flagged;
+  const { uncategorized, lowConfidence, flagged, total } = data;
 
   if (total === 0) {
     return (
-      <CardShell label={t("needsAttention")}>
-        <div className="flex flex-1 items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--status-on-track)]" />
-          {t("allClear")}
+      <CardShell label={t("toReview")}>
+        <div className="flex items-center gap-2.5 text-[13px] text-muted-foreground">
+          <CircleCheck className="size-4 text-primary" aria-hidden />
+          {t("allCaughtUp")}
         </div>
       </CardShell>
     );
   }
 
-  return (
-    <CardShell label={t("needsAttention")}>
-      <ul className="flex flex-1 flex-col gap-2">
-        <Row
-          icon={<CircleHelp className="h-4 w-4" />}
-          label={t("needsAttentionUncategorized")}
-          count={uncategorized}
-          href="/transactions"
-        />
-        <Row
-          icon={<AlertTriangle className="h-4 w-4" />}
-          label={t("needsAttentionLowConfidence")}
-          count={lowConfidence}
-          href="/transactions"
-        />
-        <Row
-          icon={<Flag className="h-4 w-4" />}
-          label={t("needsAttentionFlagged")}
-          count={flagged}
-          href="/transactions"
-        />
-      </ul>
-    </CardShell>
-  );
-}
+  const parts: string[] = [];
+  if (lowConfidence > 0) parts.push(t("reviewLowConfidence", { count: lowConfidence }));
+  if (uncategorized > 0) parts.push(t("reviewUncategorized", { count: uncategorized }));
+  if (flagged > 0) parts.push(t("reviewFlagged", { count: flagged }));
 
-function Row({
-  icon,
-  label,
-  count,
-  href,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-  href: string;
-}) {
-  if (count === 0) {
-    return (
-      <li className="flex items-center justify-between rounded-xl px-3 py-2 text-sm text-muted-foreground">
-        <span className="flex items-center gap-2.5">
-          <span className="text-muted-foreground/60">{icon}</span>
-          {label}
-        </span>
-        <span className="text-xs tabular-nums">0</span>
-      </li>
-    );
-  }
+  const sentence =
+    parts.length >= 3
+      ? t.rich("reviewSentence3", { a: parts[0], b: parts[1], c: parts[2], strong })
+      : parts.length === 2
+        ? t.rich("reviewSentence2", { a: parts[0], b: parts[1], strong })
+        : t.rich("reviewSentence1", { a: parts[0] ?? "", strong });
+
   return (
-    <li>
-      <Link
-        href={href}
-        className="group flex items-center justify-between rounded-xl px-3 py-2 text-sm transition-colors hover:bg-accent/50"
-      >
-        <span className="flex items-center gap-2.5">
-          <span className="text-foreground/80">{icon}</span>
-          {label}
+    <CardShell label={t("toReview")}>
+      <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3">
+        <span className="font-serif text-[2.375rem] font-medium leading-none tabular-nums">
+          {total}
         </span>
-        <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium tabular-nums group-hover:bg-foreground/15">
-          {count}
-        </span>
-      </Link>
-    </li>
+        <p className="min-w-[10rem] flex-1 text-[13px] text-muted-foreground">{sentence}</p>
+        <Link href="/transactions" className={buttonVariants({ size: "sm" })}>
+          {t("review")}
+        </Link>
+      </div>
+    </CardShell>
   );
 }

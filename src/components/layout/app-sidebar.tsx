@@ -3,13 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import {
-  LayoutDashboard,
-  Wallet,
-  ArrowLeftRight,
-  Settings as SettingsIcon,
-  Star,
-} from "lucide-react";
+import { Star } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -18,58 +12,37 @@ import {
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
+import { NAV_ITEMS } from "./nav-items";
+import { useReviewCount } from "./use-review-count";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 
-interface NavDef {
-  href: string;
-  labelKey: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  match: (p: string) => boolean;
-}
-
-const NAV: NavDef[] = [
-  {
-    href: "/",
-    labelKey: "home",
-    Icon: LayoutDashboard,
-    match: (p: string) => p === "/",
-  },
-  {
-    href: "/budget",
-    labelKey: "budget",
-    Icon: Wallet,
-    match: (p: string) => p.startsWith("/budget"),
-  },
-  {
-    href: "/transactions",
-    labelKey: "transactions",
-    Icon: ArrowLeftRight,
-    match: (p: string) => p.startsWith("/transactions"),
-  },
-];
-
-const FOOTER_NAV: NavDef[] = [
-  {
-    href: "/settings",
-    labelKey: "settings",
-    Icon: SettingsIcon,
-    match: (p: string) => p.startsWith("/settings"),
-  },
-];
+// Active item reads as a raised card on the cream sidebar (per the redesign
+// mock). In dark mode card and sidebar share a color, so fall back to accent.
+const NAV_BUTTON_CLASS =
+  "[&>svg]:text-muted-foreground data-active:bg-card data-active:shadow-[0_0_0_1px_var(--border),0_1px_2px_rgb(0_0_0/0.04)] data-active:hover:bg-card data-active:[&>svg]:text-primary dark:data-active:bg-sidebar-accent dark:data-active:hover:bg-sidebar-accent";
 
 export function AppSidebar() {
   const pathname = usePathname();
   const t = useTranslations("nav");
+  const reviewCount = useReviewCount();
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  // The mobile drawer should close once the user picks a destination.
+  const closeOnMobile = () => {
+    if (isMobile) setOpenMobile(false);
+  };
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="px-3 pb-1 pt-3">
         <Link
           href="/"
+          onClick={closeOnMobile}
           className="-mx-1 flex items-center gap-2.5 rounded-lg px-1 py-1 transition-colors duration-200 hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
         >
           <img
@@ -97,47 +70,43 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {NAV.map((item) => {
+            <SidebarMenu className="gap-0.5">
+              {NAV_ITEMS.map((item) => {
                 const label = t(item.labelKey);
+                const badge =
+                  item.showReviewBadge && reviewCount != null && reviewCount > 0
+                    ? reviewCount
+                    : null;
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                       render={
-                        <Link href={item.href}>
+                        <Link
+                          href={item.href}
+                          onClick={closeOnMobile}
+                          aria-current={item.match(pathname) ? "page" : undefined}
+                          aria-label={
+                            badge != null
+                              ? t("withReviewCount", { label, count: badge })
+                              : undefined
+                          }
+                        >
                           <item.Icon />
                           <span>{label}</span>
                         </Link>
                       }
                       isActive={item.match(pathname)}
                       tooltip={label}
+                      className={NAV_BUTTON_CLASS}
                     />
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarSeparator />
-
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {FOOTER_NAV.map((item) => {
-                const label = t(item.labelKey);
-                return (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton
-                      render={
-                        <Link href={item.href}>
-                          <item.Icon />
-                          <span>{label}</span>
-                        </Link>
-                      }
-                      isActive={item.match(pathname)}
-                      tooltip={label}
-                    />
+                    {badge != null && (
+                      <SidebarMenuBadge
+                        aria-hidden
+                        className="rounded-full bg-[color-mix(in_oklch,var(--status-heads-up)_22%,transparent)] px-1.5 text-[11px] font-semibold text-[color-mix(in_oklch,var(--status-heads-up)_45%,var(--foreground))]!"
+                      >
+                        {badge > 99 ? "99+" : badge}
+                      </SidebarMenuBadge>
+                    )}
                   </SidebarMenuItem>
                 );
               })}
@@ -161,6 +130,7 @@ export function AppSidebar() {
                 </a>
               }
               tooltip={t("starOnGitHub")}
+              className="text-muted-foreground hover:text-sidebar-accent-foreground"
             />
           </SidebarMenuItem>
         </SidebarMenu>

@@ -1,48 +1,45 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { getActivity, getHome } from "@/lib/api";
+import { getHome } from "@/lib/api";
 import { PageHeader } from "@/components/layout/app-shell";
-import { SyncButton } from "@/components/dashboard/sync-button";
-import { CategorizeButton } from "@/components/dashboard/categorize-button";
+import { SyncControl } from "@/components/layout/sync-control";
 import { AINotConnectedBanner } from "@/components/ai-not-connected-banner";
 import { ThisMonthCard } from "./this-month-card";
 import { CashFlowCard } from "./cash-flow-card";
 import { CategorySnapshotCard } from "./category-snapshot-card";
 import { HistoricalTrendCard } from "./historical-trend-card";
 import { RecentTransactionsCard } from "./recent-transactions-card";
-import { TopMerchantsCard } from "./top-merchants-card";
 import { NeedsAttentionCard } from "./needs-attention-card";
 import { BankHealthCard } from "./bank-health-card";
-import { SyncStatusPill } from "./sync-status-pill";
 import { SyncFailureBanner } from "./sync-failure-banner";
 import { CardError, CardSkeleton } from "./card-shell";
 import type { HomePayload, HomeSection } from "@/lib/types";
+import { useAmountsHidden } from "@/components/layout/amounts-toggle";
 
-const ROW_1 = "col-span-12 lg:col-span-8";
-const ROW_1_SIDE = "col-span-12 md:col-span-6 lg:col-span-4";
-const ROW_2 = "col-span-12 md:col-span-6 lg:col-span-7";
-const ROW_2_SIDE = "col-span-12 md:col-span-6 lg:col-span-5";
+type CardSection = Exclude<HomeSection, "topMerchants">;
+
+const ROW_GAP = "grid gap-4 md:gap-5 lg:gap-6";
 
 export function HomePage() {
-  const queryClient = useQueryClient();
+  // Re-render everything below when "Hide amounts" flips; the formatters read it.
+  useAmountsHidden();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [autoStartSync] = useState(() => searchParams.get("sync") === "1");
   const t = useTranslations("home");
-  const skeletonLabels = useMemo<Record<HomeSection, string>>(
+  const skeletonLabels = useMemo<Record<CardSection, string>>(
     () => ({
-      thisMonth: t("thisMonthLabel", { month: "" }).trim() || t("topCategoriesTitle"),
-      cashFlow: t("cashFlowTitle"),
-      categorySnapshot: t("topCategoriesTitle"),
+      thisMonth: t("spentSoFar"),
+      cashFlow: t("moneyInAndOut"),
+      categorySnapshot: t("whereItWent"),
       historicalTrend: t("last8Months"),
       recentTransactions: t("recentActivity"),
-      topMerchants: t("topMerchants"),
-      needsAttention: t("needsAttention"),
-      bankHealth: t("bankConnections"),
+      needsAttention: t("toReview"),
+      bankHealth: t("banks"),
     }),
     [t]
   );
@@ -58,54 +55,14 @@ export function HomePage() {
     queryFn: getHome,
   });
 
-  const [activityPopoverOpen, setActivityPopoverOpen] = useState(false);
-  const { data: activity } = useQuery({
-    queryKey: ["activity"],
-    queryFn: getActivity,
-    refetchInterval: (q) => {
-      const a = q.state.data;
-      if (activityPopoverOpen) return 3000;
-      if (a?.sync.active) return 3000;
-      return 15000;
-    },
-    refetchIntervalInBackground: false,
-  });
-
-  const handleActivityOpenChange = useCallback(
-    (open: boolean) => {
-      setActivityPopoverOpen(open);
-      if (open) queryClient.invalidateQueries({ queryKey: ["activity"] });
-    },
-    [queryClient]
-  );
-
-  const handleSyncOrCategorizeComplete = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["home"] });
-    queryClient.invalidateQueries({ queryKey: ["summary"] });
-    queryClient.invalidateQueries({ queryKey: ["transactions"] });
-    queryClient.invalidateQueries({ queryKey: ["settings"] });
-    queryClient.invalidateQueries({ queryKey: ["activity"] });
-  }, [queryClient]);
+  const section = (name: CardSection) =>
+    renderSection(name, data, isLoading, isError, skeletonLabels);
 
   return (
     <>
       <PageHeader
         title={t("pageTitle")}
-        actions={
-          <>
-            <SyncStatusPill
-              items={data?.bankHealth ?? null}
-              nextScheduledSync={data?.nextScheduledSync ?? null}
-              activity={activity ?? null}
-              onOpenChange={handleActivityOpenChange}
-            />
-            <CategorizeButton onApplied={handleSyncOrCategorizeComplete} />
-            <SyncButton
-              onComplete={handleSyncOrCategorizeComplete}
-              autoStart={autoStartSync}
-            />
-          </>
-        }
+        actions={<SyncControl autoStart={autoStartSync} />}
       />
 
       <div className="p-4 md:p-6 lg:p-8">
@@ -114,15 +71,22 @@ export function HomePage() {
           className="mb-4 md:mb-5 lg:mb-6"
         />
         <AINotConnectedBanner className="mb-4 md:mb-5 lg:mb-6" />
-        <div className="grid grid-cols-12 gap-4 md:gap-5 lg:gap-6">
-          {renderSection("thisMonth", data, isLoading, isError, ROW_1, skeletonLabels)}
-          {renderSection("cashFlow", data, isLoading, isError, ROW_1_SIDE, skeletonLabels)}
-          {renderSection("categorySnapshot", data, isLoading, isError, ROW_2, skeletonLabels)}
-          {renderSection("historicalTrend", data, isLoading, isError, ROW_2_SIDE, skeletonLabels)}
-          {renderSection("recentTransactions", data, isLoading, isError, ROW_2, skeletonLabels)}
-          {renderSection("topMerchants", data, isLoading, isError, ROW_2_SIDE, skeletonLabels)}
-          {renderSection("needsAttention", data, isLoading, isError, ROW_2, skeletonLabels)}
-          {renderSection("bankHealth", data, isLoading, isError, ROW_2_SIDE, skeletonLabels)}
+        <div className="flex flex-col gap-4 md:gap-5 lg:gap-6">
+          <div className={`${ROW_GAP} lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]`}>
+            {section("thisMonth")}
+            {section("cashFlow")}
+          </div>
+          <div className={`${ROW_GAP} lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]`}>
+            {section("categorySnapshot")}
+            {section("historicalTrend")}
+          </div>
+          <div className={`${ROW_GAP} lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]`}>
+            {section("recentTransactions")}
+            <div className="flex min-w-0 flex-col gap-4 md:gap-5 lg:gap-6">
+              {section("needsAttention")}
+              {section("bankHealth")}
+            </div>
+          </div>
         </div>
       </div>
     </>
@@ -130,16 +94,15 @@ export function HomePage() {
 }
 
 function renderSection(
-  section: HomeSection,
+  section: CardSection,
   data: HomePayload | undefined,
   isLoading: boolean,
   isError: boolean,
-  spanClass: string,
-  skeletonLabels: Record<HomeSection, string>
+  skeletonLabels: Record<CardSection, string>
 ) {
   if (isLoading || !data) {
     return (
-      <div key={section} className={spanClass}>
+      <div key={section} className="min-w-0">
         <CardSkeleton label={skeletonLabels[section]} height={SKELETON_HEIGHTS[section]} />
       </div>
     );
@@ -148,22 +111,18 @@ function renderSection(
   const sectionHasError =
     isError || data.errors.some((e) => e.section === section);
 
-  if (sectionHasError) {
-    return (
-      <div key={section} className={spanClass}>
-        <CardError label={skeletonLabels[section]} />
-      </div>
-    );
-  }
-
   return (
-    <div key={section} className={spanClass}>
-      {renderCard(section, data)}
+    <div key={section} className="min-w-0">
+      {sectionHasError ? (
+        <CardError label={skeletonLabels[section]} />
+      ) : (
+        renderCard(section, data)
+      )}
     </div>
   );
 }
 
-function renderCard(section: HomeSection, data: HomePayload) {
+function renderCard(section: CardSection, data: HomePayload) {
   switch (section) {
     case "thisMonth":
       return data.thisMonth ? <ThisMonthCard data={data.thisMonth} /> : null;
@@ -171,19 +130,23 @@ function renderCard(section: HomeSection, data: HomePayload) {
       return data.cashFlow ? <CashFlowCard data={data.cashFlow} /> : null;
     case "categorySnapshot":
       return data.categorySnapshot ? (
-        <CategorySnapshotCard items={data.categorySnapshot} />
+        <CategorySnapshotCard
+          items={data.categorySnapshot}
+          totalSpent={data.thisMonth?.spent ?? null}
+          elapsedPercent={data.thisMonth?.timeElapsedPercent ?? null}
+        />
       ) : null;
     case "historicalTrend":
       return data.historicalTrend ? (
-        <HistoricalTrendCard data={data.historicalTrend} />
+        <HistoricalTrendCard
+          data={data.historicalTrend}
+          budget={data.thisMonth?.budget ?? 0}
+          projected={data.thisMonth?.projected ?? null}
+        />
       ) : null;
     case "recentTransactions":
       return data.recentTransactions ? (
         <RecentTransactionsCard items={data.recentTransactions} />
-      ) : null;
-    case "topMerchants":
-      return data.topMerchants ? (
-        <TopMerchantsCard items={data.topMerchants} />
       ) : null;
     case "needsAttention":
       return data.needsAttention ? (
@@ -196,13 +159,12 @@ function renderCard(section: HomeSection, data: HomePayload) {
   }
 }
 
-const SKELETON_HEIGHTS: Record<HomeSection, number> = {
-  thisMonth: 180,
-  cashFlow: 160,
-  categorySnapshot: 220,
-  historicalTrend: 180,
-  recentTransactions: 280,
-  topMerchants: 220,
-  needsAttention: 160,
+const SKELETON_HEIGHTS: Record<CardSection, number> = {
+  thisMonth: 200,
+  cashFlow: 200,
+  categorySnapshot: 280,
+  historicalTrend: 260,
+  recentTransactions: 320,
+  needsAttention: 60,
   bankHealth: 160,
 };

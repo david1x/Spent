@@ -1,72 +1,86 @@
 "use client";
 
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
-import { TableHead } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { SortOrder, TransactionSortField } from "@/lib/transaction-sort";
 
-interface SortableTableHeadProps {
+interface SortButtonProps {
   label: string;
   field: TransactionSortField;
   activeField: TransactionSortField;
   activeOrder: SortOrder;
   onSort: (field: TransactionSortField) => void;
-  className?: string;
-  align?: "start" | "end";
   sortAscLabel: string;
   sortDescLabel: string;
+  className?: string;
 }
 
-export function SortableTableHead({
+export function SortButton({
   label,
   field,
   activeField,
   activeOrder,
   onSort,
-  className,
-  align = "start",
   sortAscLabel,
   sortDescLabel,
-}: SortableTableHeadProps) {
+  className,
+}: SortButtonProps) {
   const active = activeField === field;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(field)}
+      className={cn(
+        "-mx-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 uppercase outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50",
+        active && "text-foreground",
+        className
+      )}
+      title={active ? (activeOrder === "asc" ? sortAscLabel : sortDescLabel) : label}
+    >
+      <span>{label}</span>
+      {active ? (
+        activeOrder === "asc" ? (
+          <ArrowUp className="h-3 w-3 shrink-0" />
+        ) : (
+          <ArrowDown className="h-3 w-3 shrink-0" />
+        )
+      ) : (
+        <ArrowUpDown className="h-3 w-3 shrink-0 opacity-40" />
+      )}
+    </button>
+  );
+}
+
+interface SortableTableHeadProps extends SortButtonProps {
+  align?: "start" | "end";
+  /** Extra content after the sort button, e.g. a second sort button. */
+  children?: React.ReactNode;
+}
+
+export const TABLE_HEAD_CLASS =
+  "px-3.5 py-2.5 text-start align-middle text-[11px] font-semibold tracking-[0.04em] whitespace-nowrap text-muted-foreground uppercase";
+
+export function SortableTableHead({
+  align = "start",
+  className,
+  children,
+  ...button
+}: SortableTableHeadProps) {
+  const active = button.activeField === button.field;
   const ariaSort = active
-    ? activeOrder === "asc"
+    ? button.activeOrder === "asc"
       ? "ascending"
       : "descending"
     : "none";
 
   return (
-    <TableHead
-      className={cn(align === "end" && "text-end", className)}
+    <th
+      scope="col"
       aria-sort={ariaSort}
+      className={cn(TABLE_HEAD_CLASS, align === "end" && "text-end", className)}
     >
-      <button
-        type="button"
-        onClick={() => onSort(field)}
-        className={cn(
-          "inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-          align === "end" && "ms-auto",
-          active && "text-foreground"
-        )}
-        title={
-          active
-            ? activeOrder === "asc"
-              ? sortAscLabel
-              : sortDescLabel
-            : label
-        }
-      >
-        <span>{label}</span>
-        {active ? (
-          activeOrder === "asc" ? (
-            <ArrowUp className="h-3.5 w-3.5 shrink-0 opacity-70" />
-          ) : (
-            <ArrowDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
-          )
-        ) : (
-          <ArrowUpDown className="h-3.5 w-3.5 shrink-0 opacity-35" />
-        )}
-      </button>
-    </TableHead>
+      <SortButton {...button} />
+      {children}
+    </th>
   );
 }

@@ -410,7 +410,7 @@ function DetailContent({ data }: { data: CategoryDetail }) {
                   >
                     <div className="min-w-0 flex-1">
                       <div className="break-words text-sm font-medium">
-                        {t.description}
+                        <bdi>{t.description}</bdi>
                       </div>
                       <div className="text-xs text-muted-foreground tabular-nums">
                         {formatDate(t.date)}
@@ -427,17 +427,17 @@ function DetailContent({ data }: { data: CategoryDetail }) {
                         </Badge>
                         <ChevronDown className="h-3 w-3 text-muted-foreground" />
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
+                      <DropdownMenuContent align="end" className="w-auto min-w-44 max-h-80">
                         {(sameKindCategoriesQuery.data ?? []).map((cat) => (
                           <DropdownMenuItem
                             key={cat.id}
                             onClick={() => handleChangeCategory(t.id, cat.id)}
                           >
                             <div
-                              className="me-2 h-2 w-2 rounded-full"
+                              className="me-2 size-2 shrink-0 rounded-full"
                               style={{ backgroundColor: cat.color }}
                             />
-                            {cat.name}
+                            <span className="whitespace-nowrap">{cat.name}</span>
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuContent>
@@ -568,7 +568,7 @@ function NeedsReviewSection({
           >
             <div className="min-w-0 flex-1">
               <div className="break-words text-sm font-medium">
-                {t.description}
+                <bdi>{t.description}</bdi>
               </div>
               <div className="text-xs text-muted-foreground tabular-nums">
                 {formatDate(t.date)} · {formatCurrency(t.chargedAmount)}
@@ -590,17 +590,17 @@ function NeedsReviewSection({
                   </Badge>
                   <ChevronDown className="h-3 w-3 text-muted-foreground" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" className="w-auto min-w-44 max-h-80">
                   {categories.map((cat) => (
                     <DropdownMenuItem
                       key={cat.id}
                       onClick={() => onChange(t.id, cat.id)}
                     >
                       <div
-                        className="me-2 h-2 w-2 rounded-full"
+                        className="me-2 size-2 shrink-0 rounded-full"
                         style={{ backgroundColor: cat.color }}
                       />
-                      {cat.name}
+                      <span className="whitespace-nowrap">{cat.name}</span>
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>

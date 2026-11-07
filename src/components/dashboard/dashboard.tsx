@@ -1,20 +1,22 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { getSummary } from "@/lib/api";
-import { getMonthRange, formatMonthLabel, addMonths } from "@/lib/formatters";
+import { addMonths } from "@/lib/formatters";
 import { PageHeader } from "@/components/layout/app-shell";
 import { HeroCard } from "./hero-card";
 import { CategoryGrid } from "./category-grid";
+import { SpendingSunburst } from "./spending-sunburst";
 import { PeriodSelector } from "./period-selector";
-import { SyncButton } from "./sync-button";
-import { CategorizeButton } from "./categorize-button";
+import { SyncControl } from "@/components/layout/sync-control";
 import { AINotConnectedBanner } from "@/components/ai-not-connected-banner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CategoryViewMode } from "@/lib/types";
 import type { Locale } from "@/i18n/routing";
+import { useAmountsHidden } from "@/components/layout/amounts-toggle";
+import { useBudgetPeriod } from "@/components/layout/use-budget-period";
 
 const VIEW_MODE_KEY = "spent.dashboard.viewMode";
 
@@ -29,11 +31,12 @@ function readViewMode(): CategoryViewMode {
 }
 
 export function Dashboard() {
+  // Re-render everything below when "Hide amounts" flips; the formatters read it.
+  useAmountsHidden();
   const t = useTranslations("dashboard");
   const locale = useLocale() as Locale;
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<CategoryViewMode>("collapsed");
-  const queryClient = useQueryClient();
 
   useEffect(() => {
     setViewMode(readViewMode());
@@ -48,20 +51,13 @@ export function Dashboard() {
     }
   }, []);
 
-  const { from, to } = getMonthRange(selectedDate);
+  const { from, to, label: monthLabel } = useBudgetPeriod(selectedDate, locale);
 
   const summaryQuery = useQuery({
     queryKey: ["summary", from, to],
     queryFn: () => getSummary({ from, to }),
   });
 
-  const handleSyncComplete = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["summary"] });
-    queryClient.invalidateQueries({ queryKey: ["transactions"] });
-    queryClient.invalidateQueries({ queryKey: ["settings"] });
-  }, [queryClient]);
-
-  const monthLabel = formatMonthLabel(selectedDate, locale);
   const summary = summaryQuery.data;
 
   return (
@@ -76,8 +72,7 @@ export function Dashboard() {
               onPrev={() => setSelectedDate((d) => addMonths(d, -1))}
               onNext={() => setSelectedDate((d) => addMonths(d, 1))}
             />
-            <CategorizeButton onApplied={handleSyncComplete} />
-            <SyncButton onComplete={handleSyncComplete} />
+            <SyncControl />
           </>
         }
       />
@@ -88,6 +83,13 @@ export function Dashboard() {
           data={summary}
           loading={summaryQuery.isLoading}
           monthLabel={monthLabel}
+        />
+
+        <SpendingSunburst
+          categories={summary?.categoriesWithData ?? []}
+          loading={summaryQuery.isLoading}
+          from={from}
+          to={to}
         />
 
         <div className="flex items-center justify-end">

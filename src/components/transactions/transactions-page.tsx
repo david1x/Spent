@@ -4,50 +4,50 @@ import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
 import { PageHeader } from "@/components/layout/app-shell";
-import { TransactionsTable } from "@/components/dashboard/transactions-table";
+import {
+  TRANSACTIONS_PAGE_SIZE,
+  TransactionsTable,
+} from "@/components/dashboard/transactions-table";
 import { PeriodSelector } from "@/components/dashboard/period-selector";
 import { AINotConnectedBanner } from "@/components/ai-not-connected-banner";
-import { KpiCards } from "./kpi-cards";
-import { WidgetsRow } from "./widgets-row";
+import { SummaryStrip } from "./summary-strip";
+import {
+  TransactionsToolbar,
+  type TransactionSegment,
+} from "./transactions-toolbar";
 import {
   getCategories,
   getTransactions,
   getTransactionsSummary,
   listIntegrations,
 } from "@/lib/api";
-import type { TransactionKindFilter } from "@/lib/api";
 import { expandCategoryFilterIds } from "@/lib/transaction-filters";
 import {
   nextSortState,
   type SortOrder,
   type TransactionSortField,
 } from "@/lib/transaction-sort";
-import {
-  addMonths,
-  formatMonthLabel,
-  getMonthRange,
-} from "@/lib/formatters";
+import { addMonths } from "@/lib/formatters";
 import type { Locale } from "@/i18n/routing";
+import { useAmountsHidden } from "@/components/layout/amounts-toggle";
+import { useBudgetPeriod } from "@/components/layout/use-budget-period";
 
 export function TransactionsPage() {
+  // Re-render everything below when "Hide amounts" flips; the formatters read it.
+  useAmountsHidden();
   const t = useTranslations("transactions");
   const locale = useLocale() as Locale;
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<number[]>([]);
-  const [accountFilter, setAccountFilter] = useState<number[]>([]);
+  // "12" is a whole login, "12:4321" one card under it.
+  const [accountFilter, setAccountFilter] = useState<string[]>([]);
   const [page, setPage] = useState(0);
-  const [kind, setKind] = useState<TransactionKindFilter>("all");
+  const [segment, setSegment] = useState<TransactionSegment>("all");
   const [sortField, setSortField] = useState<TransactionSortField>("date");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-  const filterOptions: { value: TransactionKindFilter; label: string }[] = [
-    { value: "all", label: t("filterAll") },
-    { value: "income", label: t("filterIncome") },
-    { value: "expense", label: t("filterExpenses") },
-  ];
-
-  const { from, to } = getMonthRange(selectedDate);
+  const { from, to, label: monthLabel } = useBudgetPeriod(selectedDate, locale);
 
   const allCategoriesQuery = useQuery({
     queryKey: ["categories"],
@@ -58,10 +58,8 @@ export function TransactionsPage() {
     queryFn: () => listIntegrations(),
   });
 
-  const expandedCategoryIds = expandCategoryFilterIds(
-    categoryFilter,
-    allCategoriesQuery.data ?? []
-  );
+  const allCategories = allCategoriesQuery.data ?? [];
+  const expandedCategoryIds = expandCategoryFilterIds(categoryFilter, allCategories);
 
   const transactionsQuery = useQuery({
     queryKey: [
@@ -72,7 +70,7 @@ export function TransactionsPage() {
       categoryFilter,
       accountFilter,
       page,
-      kind,
+      segment,
       sortField,
       sortOrder,
     ],
@@ -80,91 +78,105 @@ export function TransactionsPage() {
       getTransactions({
         from,
         to,
-        search: search || undefined,
+        search: search.trim() || undefined,
         categoryIds: expandedCategoryIds,
-        credentialIds:
-          accountFilter.length > 0 ? accountFilter : undefined,
-        limit: 50,
-        offset: page * 50,
-        kind,
+        accounts: accountFilter.length > 0 ? accountFilter : undefined,
+        limit: TRANSACTIONS_PAGE_SIZE,
+        offset: page * TRANSACTIONS_PAGE_SIZE,
+        kind: segment,
         sort: sortField,
         order: sortOrder,
+        aggregates: true,
       }),
     placeholderData: keepPreviousData,
   });
 
+  // Only for the review queue size, which is workspace-wide.
   const summaryQuery = useQuery({
     queryKey: ["transactions-summary", from, to],
     queryFn: () => getTransactionsSummary({ from, to }),
   });
 
-  const categoriesQuery = useQuery({
-    queryKey: ["categories", kind === "income" ? "income" : "expense"],
-    queryFn: () =>
-      kind === "income" ? getCategories("income") : getCategories("expense"),
-  });
-
-  const monthLabel = formatMonthLabel(selectedDate, locale);
-
-  const summaryInitialLoading =
-    summaryQuery.isPending && summaryQuery.data === undefined;
+  const aggregates = transactionsQuery.data?.aggregates;
   const tableInitialLoading =
     transactionsQuery.isPending && transactionsQuery.data === undefined;
+  const hasFilters =
+    search.trim().length > 0 ||
+    categoryFilter.length > 0 ||
+    accountFilter.length > 0 ||
+    segment !== "all";
+
+  const selectionKey = JSON.stringify([
+    from,
+    search,
+    categoryFilter,
+    accountFilter,
+    page,
+    segment,
+    sortField,
+    sortOrder,
+  ]);
+
+  const changeMonth = (delta: number) => {
+    setSelectedDate((d) => addMonths(d, delta));
+    setPage(0);
+  };
 
   return (
     <>
       <PageHeader
         title={t("pageTitle")}
-        meta={monthLabel}
         actions={
           <PeriodSelector
             label={monthLabel}
-            onPrev={() => setSelectedDate((d) => addMonths(d, -1))}
-            onNext={() => setSelectedDate((d) => addMonths(d, 1))}
+            onPrev={() => changeMonth(-1)}
+            onNext={() => changeMonth(1)}
           />
         }
       />
 
-      <div className="space-y-6 p-4 md:p-6 lg:p-8">
+      <div className="space-y-4 p-4 md:p-6 lg:p-8">
         <AINotConnectedBanner />
-        <KpiCards summary={summaryQuery.data} loading={summaryInitialLoading} />
 
-        <WidgetsRow
-          summary={summaryQuery.data}
-          loading={summaryInitialLoading}
+        <TransactionsToolbar
+          search={search}
+          onSearchChange={(value) => {
+            setSearch(value);
+            setPage(0);
+          }}
+          categories={allCategories}
+          categoryFilter={categoryFilter}
+          onCategoryFilterChange={(ids) => {
+            setCategoryFilter(ids);
+            setPage(0);
+          }}
+          integrations={integrationsQuery.data ?? []}
+          accountFilter={accountFilter}
+          onAccountFilterChange={(ids) => {
+            setAccountFilter(ids);
+            setPage(0);
+          }}
+          segment={segment}
+          onSegmentChange={(next) => {
+            setSegment(next);
+            setPage(0);
+          }}
+          counts={aggregates?.counts}
         />
 
-        <div className="flex flex-wrap items-center gap-1.5 rounded-full border border-border bg-card p-1 w-fit">
-          {filterOptions.map((opt) => {
-            const active = kind === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => {
-                  setKind(opt.value);
-                  setPage(0);
-                  setCategoryFilter([]);
-                }}
-                className={
-                  active
-                    ? "rounded-full bg-foreground px-4 py-1.5 text-xs font-medium text-background transition-colors"
-                    : "rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                }
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+        <SummaryStrip
+          aggregates={aggregates}
+          loading={tableInitialLoading}
+          pendingReviewCount={summaryQuery.data?.pendingReviewCount ?? 0}
+        />
 
         <TransactionsTable
           transactions={transactionsQuery.data?.transactions ?? []}
           total={transactionsQuery.data?.total ?? 0}
-          categories={categoriesQuery.data ?? []}
-          integrations={integrationsQuery.data ?? []}
+          days={aggregates?.days}
           loading={tableInitialLoading}
           isFetching={transactionsQuery.isFetching}
+          hasFilters={hasFilters}
           sortField={sortField}
           sortOrder={sortOrder}
           onSortChange={(field) => {
@@ -173,20 +185,9 @@ export function TransactionsPage() {
             setSortOrder(next.order);
             setPage(0);
           }}
-          search={search}
-          onSearchChange={setSearch}
-          categoryFilter={categoryFilter}
-          onCategoryFilterChange={(ids) => {
-            setCategoryFilter(ids);
-            setPage(0);
-          }}
-          accountFilter={accountFilter}
-          onAccountFilterChange={(ids) => {
-            setAccountFilter(ids);
-            setPage(0);
-          }}
           page={page}
           onPageChange={setPage}
+          selectionKey={selectionKey}
         />
       </div>
     </>

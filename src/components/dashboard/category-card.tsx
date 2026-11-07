@@ -141,8 +141,16 @@ export function CategoryCard({ data, onClick }: CategoryCardProps) {
                 ? t("transactionsOne")
                 : t("transactionsOther")}
               {data.topMerchant
-                ? ` · ${t("mostlyMerchant", { merchant: data.topMerchant })}`
-                : ""}
+                ? (
+                  <>
+                    {" · "}
+                    {t.rich("mostlyMerchant", {
+                      name: data.topMerchant,
+                      merchant: (chunks) => <bdi>{chunks}</bdi>,
+                    })}
+                  </>
+                )
+                : null}
             </div>
           </div>
         </div>

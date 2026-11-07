@@ -2,10 +2,14 @@
 
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { CardShell, CardAction } from "./card-shell";
+import { cn } from "@/lib/utils";
+import { parseSyncError } from "@/lib/sync-error";
 import { formatLastSync } from "@/lib/formatters";
 import { translateProviderName, useFormatterLabels } from "@/lib/i18n-data";
-import type { HomeBankHealthItem } from "@/lib/types";
+import { BANK_PROVIDERS, type HomeBankHealthItem } from "@/lib/types";
+import { ProviderBadge } from "@/components/setup/provider-badge";
+import { CardShell, CardAction } from "./card-shell";
+import { AMBER_INK } from "./home-format";
 
 interface Props {
   items: HomeBankHealthItem[];
@@ -13,34 +17,25 @@ interface Props {
 
 export function BankHealthCard({ items }: Props) {
   const t = useTranslations("home");
-  if (items.length === 0) {
-    return (
-      <div id="bank-health" className="contents">
-        <CardShell
-          label={t("bankConnections")}
-          action={<CardAction href="/settings/bank">{t("manage")}</CardAction>}
-        >
-          <div className="flex flex-1 items-center justify-center py-6 text-sm text-muted-foreground">
-            {t("noBanksConnectedYet")}
-          </div>
-        </CardShell>
-      </div>
-    );
-  }
-
   return (
     <div id="bank-health" className="contents">
       <CardShell
-        label={t("bankConnections")}
+        label={t("banks")}
         action={<CardAction href="/settings/bank">{t("manage")}</CardAction>}
       >
-        <ul className="flex flex-1 flex-col gap-3">
-          {items.map((item) => (
-            <li key={item.provider}>
-              <Row item={item} />
-            </li>
-          ))}
-        </ul>
+        {items.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center py-6 text-sm text-muted-foreground">
+            {t("noBanksConnectedYet")}
+          </div>
+        ) : (
+          <ul className="flex flex-col divide-y divide-border">
+            {items.map((item) => (
+              <li key={item.provider}>
+                <Row item={item} />
+              </li>
+            ))}
+          </ul>
+        )}
       </CardShell>
     </div>
   );
@@ -50,68 +45,60 @@ function Row({ item }: { item: HomeBankHealthItem }) {
   const t = useTranslations("home");
   const tBanks = useTranslations("banks");
   const labels = useFormatterLabels();
-  const { providerName, lastSyncAt, status, errorMessage, provider } = item;
-  const displayName = translateProviderName(provider, providerName, tBanks);
+  const { provider, providerName, status, lastSyncAt, lastSuccessAt, errorMessage } = item;
+  const info = BANK_PROVIDERS.find((p) => p.id === provider);
+  const name = translateProviderName(provider, providerName, tBanks);
+
+  let sub: string;
+  if (status === "error") {
+    sub = lastSuccessAt
+      ? t("lastSyncedWhen", { when: formatLastSync(lastSuccessAt, labels) })
+      : t("lastAttemptFailed");
+  } else if (status === "never") {
+    sub = t("notSyncedYet");
+  } else {
+    sub = t("bankTxnCount", { count: item.transactionCount });
+  }
+
+  const dot =
+    status === "ok"
+      ? "bg-status-on-track"
+      : status === "never"
+        ? "bg-muted-foreground/40"
+        : "bg-status-heads-up";
+  const statusText =
+    status === "error"
+      ? t("needsYou")
+      : status === "never"
+        ? t("statusNeverSynced")
+        : formatLastSync(lastSyncAt, labels);
 
   return (
     <Link
       href="/settings/bank"
-      className="flex items-center justify-between rounded-xl px-2 py-1.5 transition-colors hover:bg-accent/40"
-      title={errorMessage ?? undefined}
+      title={parseSyncError(errorMessage)?.summary}
+      className="-mx-2 grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-lg px-2 py-2 outline-none transition-colors hover:bg-accent/40 focus-visible:bg-accent/50"
     >
-      <div className="flex min-w-0 items-center gap-2.5">
-        <StatusDot status={status} />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{displayName}</div>
-          <div className="text-xs text-muted-foreground">
-            {describeLastSync(lastSyncAt, status, labels, t)}
-          </div>
-        </div>
+      <ProviderBadge
+        color={info?.color ?? "var(--muted-foreground)"}
+        name={name}
+        domain={info?.domain}
+        size={28}
+        radius={8}
+      />
+      <div className="min-w-0">
+        <div className="truncate text-[13.5px] font-medium">{name}</div>
+        <div className="truncate text-[11.5px] text-muted-foreground">{sub}</div>
       </div>
-      <StatusLabel status={status} />
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground",
+          status === "error" && cn("font-medium", AMBER_INK)
+        )}
+      >
+        <span className={cn("size-2 shrink-0 rounded-full", dot)} aria-hidden />
+        {statusText}
+      </span>
     </Link>
   );
-}
-
-function StatusDot({ status }: { status: HomeBankHealthItem["status"] }) {
-  const cls =
-    status === "ok"
-      ? "bg-[var(--status-on-track)]"
-      : status === "stale"
-        ? "bg-[var(--status-heads-up)]"
-        : status === "error"
-          ? "bg-[var(--status-over)]"
-          : "bg-muted-foreground/40";
-  return <span className={`h-2 w-2 shrink-0 rounded-full ${cls}`} />;
-}
-
-function StatusLabel({ status }: { status: HomeBankHealthItem["status"] }) {
-  const t = useTranslations("home");
-  const text =
-    status === "ok"
-      ? t("statusOk")
-      : status === "stale"
-        ? t("statusStale")
-        : status === "error"
-          ? t("statusError")
-          : t("statusNeverSynced");
-  const cls =
-    status === "ok"
-      ? "text-[var(--status-on-track)]"
-      : status === "stale"
-        ? "text-[var(--status-heads-up)]"
-        : status === "error"
-          ? "text-[var(--status-over)]"
-          : "text-muted-foreground";
-  return <span className={`text-xs font-medium ${cls}`}>{text}</span>;
-}
-
-function describeLastSync(
-  iso: string | null,
-  status: HomeBankHealthItem["status"],
-  labels: ReturnType<typeof useFormatterLabels>,
-  t: ReturnType<typeof useTranslations<"home">>,
-): string {
-  if (!iso) return status === "error" ? t("lastAttemptFailed") : t("statusNeverSynced");
-  return formatLastSync(iso, labels);
 }

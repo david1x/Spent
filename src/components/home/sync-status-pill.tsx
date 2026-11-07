@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatLastSync, formatJerusalemTimeOfDay } from "@/lib/formatters";
 import { translateProviderName, useFormatterLabels } from "@/lib/i18n-data";
@@ -12,50 +14,40 @@ import {
 } from "@/components/ui/popover";
 import type { ActivitySnapshot, HomeBankHealthItem } from "@/lib/types";
 
-interface Props {
-  items: HomeBankHealthItem[] | null;
-  nextScheduledSync: string | null;
-  activity: ActivitySnapshot | null;
-  onOpenChange?: (open: boolean) => void;
-}
-
 type PillTone = "ok" | "warn" | "error" | "muted" | "active";
 
-interface PillState {
+interface SegmentState {
   tone: PillTone;
+  /** Full label, e.g. "3 of 4 banks · 7m ago". */
   label: string;
-  detail: string | null;
+  /** Phone label, e.g. "3/4". */
+  compact: string;
 }
 
-const TONE_STYLES: Record<PillTone, { dot: string; text: string; ring: string; pulse: boolean }> = {
+const TONE_STYLES: Record<PillTone, { dot: string; text: string; pulse: boolean }> = {
   ok: {
     dot: "bg-[var(--status-on-track)]",
     text: "text-foreground",
-    ring: "ring-[color-mix(in_oklch,var(--status-on-track)_30%,var(--border))]",
     pulse: false,
   },
   warn: {
     dot: "bg-[var(--status-heads-up)]",
     text: "text-foreground",
-    ring: "ring-[color-mix(in_oklch,var(--status-heads-up)_35%,var(--border))]",
     pulse: false,
   },
   error: {
     dot: "bg-[var(--status-over)]",
     text: "text-[var(--status-over)]",
-    ring: "ring-[color-mix(in_oklch,var(--status-over)_45%,var(--border))]",
     pulse: false,
   },
   muted: {
     dot: "bg-muted-foreground/40",
     text: "text-muted-foreground",
-    ring: "ring-border",
     pulse: false,
   },
   active: {
-    dot: "bg-[var(--accent)]",
+    dot: "bg-[var(--primary)]",
     text: "text-foreground",
-    ring: "ring-[color-mix(in_oklch,var(--accent)_45%,var(--border))]",
     pulse: true,
   },
 };
@@ -84,91 +76,89 @@ function useTick(active: boolean): void {
   }, [active]);
 }
 
-export function SyncStatusPill({
+function syncTime(iso: string): number {
+  return new Date(iso + "Z").getTime();
+}
+
+function mostRecentSync(items: HomeBankHealthItem[]): string | null {
+  let best: string | null = null;
+  for (const i of items) {
+    if (!i.lastSyncAt) continue;
+    if (!best || syncTime(i.lastSyncAt) > syncTime(best)) best = i.lastSyncAt;
+  }
+  return best;
+}
+
+interface SegmentProps {
+  items: HomeBankHealthItem[] | null;
+  nextScheduledSync: string | null;
+  activity: ActivitySnapshot | null;
+  /** True while this tab is running a sync (the activity poll can lag). */
+  syncing?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  className?: string;
+}
+
+/**
+ * The status half of the header sync control: how many banks are current and
+ * when they last synced. Opens a popover with per-bank status and background
+ * activity.
+ */
+export function SyncStatusSegment({
   items,
   nextScheduledSync,
   activity,
+  syncing = false,
   onOpenChange,
-}: Props) {
-  const tPill = useTranslations("syncPill");
-  const tBanks = useTranslations("banks");
+  className,
+}: SegmentProps) {
+  const t = useTranslations("syncPill");
   const fmtLabels = useFormatterLabels();
-  const syncActive = activity?.sync.active === true;
-  const syncStale = activity?.sync.stale === true;
+  const syncActive = syncing || activity?.sync.active === true;
+  const syncStale = activity?.sync.active === true && activity.sync.stale;
   useTick(syncActive);
 
-  const baseState = useMemo<PillState>(() => {
+  const baseState = useMemo<SegmentState>(() => {
     if (!items || items.length === 0) {
-      return { tone: "muted", label: tPill("noBanksConnected"), detail: null };
+      return { tone: "muted", label: t("noBanksConnected"), compact: "0" };
     }
-
-    const errors = items.filter((i) => i.status === "error");
-    if (errors.length > 0) {
-      return {
-        tone: "error",
-        label:
-          errors.length === 1
-            ? tPill("oneBankFailed")
-            : tPill("banksFailed", { count: errors.length }),
-        detail: errors
-          .map((e) => translateProviderName(e.provider, e.providerName, tBanks))
-          .join(", "),
-      };
-    }
-
+    const total = items.length;
     const okItems = items.filter((i) => i.status === "ok");
-    const staleItems = items.filter((i) => i.status === "stale");
-    const everSynced = items.filter((i) => i.lastSyncAt != null);
+    const healthy = okItems.length;
+    const compact = `${healthy}/${total}`;
+    const lastSync = mostRecentSync(healthy > 0 ? okItems : items);
 
-    if (everSynced.length === 0) {
-      return { tone: "muted", label: tPill("neverSynced"), detail: null };
+    if (!lastSync) {
+      return { tone: "muted", label: t("neverSynced"), compact };
     }
 
-    const oldestSync = everSynced.reduce<string | null>((oldest, i) => {
-      if (!i.lastSyncAt) return oldest;
-      if (!oldest) return i.lastSyncAt;
-      return new Date(i.lastSyncAt + "Z").getTime() <
-        new Date(oldest + "Z").getTime()
-        ? i.lastSyncAt
-        : oldest;
-    }, null);
-
-    if (staleItems.length > 0 && okItems.length === 0) {
-      return {
-        tone: "warn",
-        label: tPill("lastSyncRelative", { time: formatLastSync(oldestSync, fmtLabels) }),
-        detail: staleItems
-          .map((s) => translateProviderName(s.provider, s.providerName, tBanks))
-          .join(", "),
-      };
+    const time = formatLastSync(lastSync, fmtLabels);
+    if (healthy === total) {
+      return { tone: "ok", label: t("allBanks", { count: total, time }), compact };
     }
-
     return {
-      tone: "ok",
-      label: tPill("syncedRelative", { time: formatLastSync(oldestSync, fmtLabels) }),
-      detail: null,
+      tone: "warn",
+      label: t("someBanks", { healthy, total, time }),
+      compact,
     };
-  }, [items, tPill, tBanks, fmtLabels]);
+  }, [items, t, fmtLabels]);
 
-  let state: PillState = baseState;
-  if (syncActive && syncStale) {
-    state = { tone: "warn", label: tPill("syncMayBeStuck"), detail: null };
+  let state: SegmentState = baseState;
+  if (syncStale) {
+    state = { ...baseState, tone: "warn", label: t("syncMayBeStuck") };
   } else if (syncActive) {
     const elapsed = formatElapsed(activity?.sync.since ?? null, fmtLabels.justNow);
     state = {
+      ...baseState,
       tone: "active",
-      label: elapsed
-        ? tPill("syncingNowElapsed", { elapsed })
-        : tPill("syncingNow"),
-      detail: null,
+      label:
+        elapsed && activity?.sync.active
+          ? t("syncingNowElapsed", { elapsed })
+          : t("syncingNow"),
     };
   }
 
   const styles = TONE_STYLES[state.tone];
-
-  const nextText = nextScheduledSync
-    ? tPill("nextScheduled", { time: formatJerusalemTimeOfDay(nextScheduledSync) })
-    : null;
 
   return (
     <Popover onOpenChange={onOpenChange}>
@@ -176,37 +166,115 @@ export function SyncStatusPill({
         render={
           <button
             type="button"
+            aria-label={t("statusAria", { status: state.label })}
             className={cn(
-              "inline-flex items-center gap-2 rounded-full bg-card px-3 py-1.5 text-xs ring-1 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              styles.text,
-              styles.ring
+              "inline-flex items-center gap-2 px-2.5 text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-accent/60 sm:px-3",
+              className
             )}
           >
             <span
+              aria-hidden
               className={cn(
-                "h-1.5 w-1.5 shrink-0 rounded-full",
+                "size-2 shrink-0 rounded-full",
                 styles.dot,
                 styles.pulse && "animate-pulse"
               )}
             />
-            <span className="font-medium">{state.label}</span>
-            {nextText && !syncActive && (
-              <>
-                <span className="text-muted-foreground/60">·</span>
-                <span className="text-muted-foreground">{nextText}</span>
-              </>
-            )}
+            <span className="tabular-nums sm:hidden">{state.compact}</span>
+            <span className="hidden whitespace-nowrap tabular-nums sm:inline">
+              {state.label}
+            </span>
           </button>
         }
       />
-      <PopoverContent>
-        <ActivityPanel activity={activity} />
+      <PopoverContent className="w-80 p-0">
+        <BankStatusList items={items} />
+        <div className="border-t border-border p-3">
+          <ActivityPanel activity={activity} nextScheduledSync={nextScheduledSync} />
+        </div>
+        <Link
+          href="/settings/bank"
+          className="flex items-center justify-between gap-2 rounded-b-lg border-t border-border px-3 py-2.5 text-xs font-medium text-foreground outline-none transition-colors hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          {t("manageBanks")}
+          <ChevronRight aria-hidden className="size-3.5 text-muted-foreground rtl:rotate-180" />
+        </Link>
       </PopoverContent>
     </Popover>
   );
 }
 
-function ActivityPanel({ activity }: { activity: ActivitySnapshot | null }) {
+const BANK_STATUS_TONE: Record<HomeBankHealthItem["status"], PillTone> = {
+  ok: "ok",
+  stale: "warn",
+  error: "warn",
+  never: "muted",
+};
+
+function BankStatusList({ items }: { items: HomeBankHealthItem[] | null }) {
+  const t = useTranslations("syncPill");
+  const tBanks = useTranslations("banks");
+  const fmtLabels = useFormatterLabels();
+
+  if (!items || items.length === 0) {
+    return (
+      <div className="p-3 text-xs text-muted-foreground">
+        {t("noBanksConnected")}
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3">
+      <div className="mb-2 text-xs font-medium text-foreground">
+        {t("banksTitle")}
+      </div>
+      <ul className="space-y-2">
+        {items.map((item) => {
+          const tone = TONE_STYLES[BANK_STATUS_TONE[item.status]];
+          let detail: string;
+          if (item.status === "error") detail = t("bankNeedsAttention");
+          else if (item.status === "never") detail = fmtLabels.never;
+          else detail = formatLastSync(item.lastSyncAt, fmtLabels);
+          return (
+            <li
+              key={item.provider}
+              className="flex items-center justify-between gap-3 text-xs"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <span
+                  aria-hidden
+                  className={cn("size-1.5 shrink-0 rounded-full", tone.dot)}
+                />
+                <span className="truncate text-foreground">
+                  {translateProviderName(item.provider, item.providerName, tBanks)}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "shrink-0 text-end",
+                  item.status === "error" || item.status === "stale"
+                    ? "font-medium text-[color-mix(in_oklch,var(--status-heads-up)_60%,var(--foreground))]"
+                    : "text-muted-foreground"
+                )}
+              >
+                {detail}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function ActivityPanel({
+  activity,
+  nextScheduledSync,
+}: {
+  activity: ActivitySnapshot | null;
+  nextScheduledSync: string | null;
+}) {
   const t = useTranslations("activityPanel");
   const fmtLabels = useFormatterLabels();
   const sync = activity?.sync;
@@ -231,12 +299,11 @@ function ActivityPanel({ activity }: { activity: ActivitySnapshot | null }) {
     };
   }
 
-  const schedulerRow: { tone: PillTone; text: string } = scheduler?.armed
-    ? {
-        tone: "ok",
-        text: t("schedulerNext", { time: formatJerusalemTimeOfDay(scheduler.nextRunAt!) }),
-      }
-    : { tone: "muted", text: t("schedulerOff") };
+  const nextRunAt = scheduler?.nextRunAt ?? nextScheduledSync;
+  const schedulerRow: { tone: PillTone; text: string } =
+    scheduler?.armed && nextRunAt
+      ? { tone: "ok", text: t("schedulerNext", { time: formatJerusalemTimeOfDay(nextRunAt) }) }
+      : { tone: "muted", text: t("schedulerOff") };
 
   const ollamaRow: { tone: PillTone; text: string } = ollama?.running
     ? { tone: "ok", text: t("ollamaRunning") }

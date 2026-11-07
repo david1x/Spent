@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, FolderKanban, Plus, Settings2 } from "lucide-react";
@@ -31,6 +32,7 @@ export function useSwitchWorkspace() {
 
 export function WorkspaceSwitcher() {
   const router = useRouter();
+  const t = useTranslations("workspaceSwitcher");
   const switchWorkspace = useSwitchWorkspace();
   const activeId = useActiveWorkspaceId();
 
@@ -64,8 +66,8 @@ export function WorkspaceSwitcher() {
             render={
               <SidebarMenuButton
                 size="lg"
-                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-                tooltip={active?.name ?? "Workspaces"}
+                className="border border-sidebar-border bg-card shadow-[0_1px_2px_rgb(0_0_0/0.04)] hover:bg-card/70 data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground dark:bg-sidebar-accent/60 group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none"
+                tooltip={active?.name ?? t("workspaces")}
               />
             }
           >
@@ -74,10 +76,10 @@ export function WorkspaceSwitcher() {
             </div>
             <div className="flex min-w-0 flex-1 flex-col text-start group-data-[collapsible=icon]:hidden">
               <span className="truncate text-sm font-medium">
-                {active?.name ?? "Workspace"}
+                {active?.name ?? t("workspace")}
               </span>
               <span className="truncate text-[11px] text-muted-foreground">
-                Workspace
+                {t("workspace")}
               </span>
             </div>
             <ChevronsUpDown className="ms-auto size-4 shrink-0 opacity-60 group-data-[collapsible=icon]:hidden" />
@@ -90,7 +92,7 @@ export function WorkspaceSwitcher() {
             className="min-w-[14rem]"
           >
             <div className="px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Workspaces
+              {t("workspaces")}
             </div>
             {workspaces.map((w) => (
               <DropdownMenuItem
@@ -111,14 +113,14 @@ export function WorkspaceSwitcher() {
               className="gap-2"
             >
               <Plus className="size-4" />
-              New workspace
+              {t("newWorkspace")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => router.push("/settings#workspace")}
               className="gap-2"
             >
               <Settings2 className="size-4" />
-              Manage workspaces
+              {t("manageWorkspaces")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -31,7 +31,7 @@ export function TopMerchantsCard({ items }: Props) {
           return (
             <li key={`${m.name}-${i}`} className="space-y-1">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="truncate text-sm font-medium">{m.name}</span>
+                <span className="truncate text-sm font-medium"><bdi>{m.name}</bdi></span>
                 <span className="shrink-0 tabular-nums text-sm">
                   {formatCurrency(m.total)}
                 </span>
