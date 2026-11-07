@@ -11,8 +11,11 @@ import type {
   Workspace,
   HomePayload,
   ActivitySnapshot,
+  TransactionListAggregates,
+  CardAccount,
 } from "./types";
 import { getActiveWorkspaceIdSync } from "./workspace-store";
+import { scopeHeaderValue } from "./scope-store";
 
 const BASE = "";
 
@@ -21,6 +24,11 @@ function withWorkspaceHeader(init?: RequestInit): RequestInit {
   const headers = new Headers(init?.headers);
   if (wsId != null && !headers.has("x-workspace-id")) {
     headers.set("x-workspace-id", String(wsId));
+  }
+  // Bank bundles the user narrowed the totals to; absent means all accounts.
+  const scope = scopeHeaderValue();
+  if (scope && !headers.has("x-spent-scope")) {
+    headers.set("x-spent-scope", scope);
   }
   return { ...init, headers };
 }
@@ -101,6 +109,27 @@ export function updateIntegrationSettings(
   });
 }
 
+/** The cards under one card login (a Cal user can hold several). */
+export function listCardAccounts(credentialId: number) {
+  return fetchJSON<CardAccount[]>(`/api/integrations/${credentialId}/cards`);
+}
+
+/** Sets or clears which bank login pays one card's bill. */
+export function setCardPaidFrom(
+  credentialId: number,
+  accountNumber: string,
+  bankCredentialId: number | null
+) {
+  return fetchJSON<{ success: boolean; card: CardAccount | null }>(
+    `/api/integrations/${credentialId}/cards`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountNumber, bankCredentialId }),
+    }
+  );
+}
+
 export function submitSyncOtp(syncRunId: number, code: string) {
   return fetchJSON<{ success: boolean }>("/api/sync/otp", {
     method: "POST",
@@ -157,7 +186,14 @@ export function updateSettings(settings: Partial<AppSettings>) {
   });
 }
 
-export type TransactionKindFilter = "expense" | "income" | "all";
+/** See the server-side TransactionKindFilter for what each value matches. */
+export type TransactionKindFilter =
+  | "expense"
+  | "income"
+  | "all"
+  | "spending"
+  | "counted_income"
+  | "not_counted";
 export type TransactionKind = "expense" | "income" | "transfer";
 export type CategoryKindFilter = "expense" | "income";
 
@@ -173,6 +209,8 @@ export interface TransactionsSummary {
     largest: TransactionWithCategory | null;
   };
   net: number;
+  /** Outflows left out of `expense`: card bills, own-account transfers, excluded rows. */
+  notCounted: { total: number; count: number };
   topMerchants: { description: string; total: number; count: number }[];
   pendingReviewCount: number;
 }
@@ -181,6 +219,8 @@ export function getTransactionsSummary(params: {
   from: string;
   to: string;
   credentialIds?: number[];
+  /** "12" for a whole login, "12:4321" for one card under it. */
+  accounts?: string[];
 }) {
   const sp = new URLSearchParams({ from: params.from, to: params.to });
   if (params.credentialIds?.length) {
@@ -188,6 +228,7 @@ export function getTransactionsSummary(params: {
       sp.append("credentialIds", String(id));
     }
   }
+  for (const key of params.accounts ?? []) sp.append("accounts", key);
   return fetchJSON<TransactionsSummary>(`/api/transactions/summary?${sp}`);
 }
 
@@ -204,12 +245,20 @@ export function getTransactions(params: {
   kind?: TransactionKindFilter;
   provider?: string;
   credentialIds?: number[];
+  /** "12" for a whole login, "12:4321" for one card under it. */
+  accounts?: string[];
+  /** Ask for segment counts, totals and per-day totals. */
+  aggregates?: boolean;
 }) {
   const searchParams = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined) return;
+    if (key === "aggregates") {
+      if (value === true) searchParams.set(key, "1");
+      return;
+    }
     if (
-      (key === "categoryIds" || key === "credentialIds") &&
+      (key === "categoryIds" || key === "credentialIds" || key === "accounts") &&
       Array.isArray(value)
     ) {
       for (const id of value) searchParams.append(key, String(id));
@@ -217,9 +266,11 @@ export function getTransactions(params: {
     }
     searchParams.set(key, String(value));
   });
-  return fetchJSON<{ transactions: TransactionWithCategory[]; total: number }>(
-    `/api/transactions?${searchParams}`
-  );
+  return fetchJSON<{
+    transactions: TransactionWithCategory[];
+    total: number;
+    aggregates?: TransactionListAggregates;
+  }>(`/api/transactions?${searchParams}`);
 }
 
 export function setTransactionKind(id: number, kind: TransactionKind) {
@@ -378,6 +429,17 @@ export function updateCategoryBudgetMode(
   });
 }
 
+export function updateCategoryCountsInSpending(
+  categoryId: number,
+  countsInSpending: boolean
+) {
+  return fetchJSON<{ success: boolean }>(`/api/categories/${categoryId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ countsInSpending }),
+  });
+}
+
 export function updateCategoryDescription(
   categoryId: number,
   description: string | null
@@ -441,6 +503,31 @@ export function deleteIntegration(credentialId: number) {
   return fetchJSON<{ success: boolean }>(`/api/integrations/${credentialId}`, {
     method: "DELETE",
   });
+}
+
+export interface CredentialMovePreview {
+  transactionCount: number;
+  duplicateCount: number;
+  unmatchedCategories: string[];
+  uncategorizedCount: number;
+  removedLinkCount: number;
+}
+
+export function previewIntegrationMove(credentialId: number, workspaceId: number) {
+  return fetchJSON<CredentialMovePreview>(
+    `/api/integrations/${credentialId}/move?to=${workspaceId}`
+  );
+}
+
+export function moveIntegration(credentialId: number, workspaceId: number) {
+  return fetchJSON<CredentialMovePreview & { movedCount: number }>(
+    `/api/integrations/${credentialId}/move`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId }),
+    }
+  );
 }
 
 export function getIntegrationCredentials(credentialId: number) {
