@@ -72,7 +72,7 @@ Key priorities (in order):
 ## Testing the app
 
 ```bash
-npm run dev               # starts on 127.0.0.1:3000
+npm run dev               # starts on 127.0.0.1:4005
 ```
 
 For end-to-end testing without real credentials, call the setup API directly:
