@@ -80,6 +80,7 @@ export function SyncProgressDialog({
         }
     );
   }, [providers, rows]);
+  const failedCount = fullRows.filter((r) => r.status === "error").length;
 
   return (
     <Dialog
@@ -93,17 +94,23 @@ export function SyncProgressDialog({
         showCloseButton={done}
       >
         <div className="px-6 pt-6 pb-2">
-          <HeroDots done={done} warning={Boolean(aiWarning)} />
+          <HeroDots done={done} warning={Boolean(aiWarning) || failedCount > 0} />
           <DialogTitle className="mt-4 text-center font-serif text-2xl font-normal">
             {done
-              ? aiWarning
-                ? "Synced — categorization skipped"
-                : "All synced!"
+              ? failedCount > 0
+                ? failedCount === fullRows.length
+                  ? "Sync didn't go through"
+                  : `${failedCount} of ${fullRows.length} didn't sync`
+                : aiWarning
+                  ? "Synced, categorization skipped"
+                  : "All synced!"
               : "Syncing your accounts"}
           </DialogTitle>
           <DialogDescription className="mt-1 text-center text-xs">
             {done
-              ? aiWarning
+              ? failedCount > 0
+                ? "The reason is next to each one below. The rest are up to date."
+                : aiWarning
                 ? "Connect an AI provider to auto-categorize transactions."
                 : "Pulling fresh data from your banks. You're up to date."
               : stage
@@ -228,7 +235,7 @@ function ProviderRowView({
                 ? "Already up to date"
                 : `+${row.added} new${row.updated ? ` · ${row.updated} updated` : ""}`)}
             {row.status === "error" &&
-              (row.errorMessage?.slice(0, 60) ?? "Failed")}
+              (row.errorMessage ?? "Failed")}
           </div>
         </div>
 

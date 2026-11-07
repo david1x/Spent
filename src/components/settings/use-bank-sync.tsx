@@ -4,6 +4,15 @@ import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { startSync, type SyncProgressEvent } from "@/lib/api";
+import { BANK_PROVIDERS } from "@/lib/types";
+import { useSync } from "@/components/dashboard/sync-button";
+
+/** Banks that text a one-time code, which only the app-wide sync dialog can collect. */
+function asksForCode(provider: string | undefined): boolean {
+  return Boolean(
+    provider && BANK_PROVIDERS.find((b) => b.id === provider)?.supportsProgrammaticTwoFactor
+  );
+}
 
 export interface SyncState {
   syncing: boolean;
@@ -12,10 +21,16 @@ export interface SyncState {
 
 export function useBankSync() {
   const queryClient = useQueryClient();
+  const globalSync = useSync();
   const [state, setState] = useState<Record<number, SyncState>>({});
 
   const start = useCallback(
-    (credentialId: number) => {
+    (credentialId: number, provider?: string) => {
+      // The app-wide sync shows a progress dialog with a field for the code.
+      if (asksForCode(provider) && globalSync) {
+        globalSync.start(credentialId);
+        return;
+      }
       setState((prev) => ({
         ...prev,
         [credentialId]: { syncing: true, stage: "Connecting…" },
@@ -38,7 +53,7 @@ export function useBankSync() {
             "Bank";
           toast.warning(`${label} needs a 2FA code`, {
             description:
-              "Use the global Sync button on the dashboard to enter the one-time code. Spent will remember the token for future syncs.",
+              "Press Sync at the top of the page to enter the code. Spent remembers the sign-in afterwards, so you only do this once.",
             duration: 12000,
             closeButton: true,
           });
@@ -84,7 +99,7 @@ export function useBankSync() {
         }
       });
     },
-    [queryClient]
+    [queryClient, globalSync]
   );
 
   const stateFor = (credentialId: number): SyncState =>

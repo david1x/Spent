@@ -300,3 +300,4 @@ export function listBankCredentials(workspaceId: number): BankCredentialMeta[] {
     };
   });
 }
+

@@ -4,7 +4,8 @@ import {
   getRequiresManualTwoFactor,
 } from "@/server/db/queries/bank-credentials";
 import { scrapeBank } from "@/server/scrapers";
-import type { BankProvider } from "@/lib/types";
+import { scrapeOneZeroWithToken } from "@/server/scrapers/one-zero";
+import { BANK_PROVIDERS, type BankProvider } from "@/lib/types";
 import { getWorkspaceIdFromRequest } from "@/server/lib/workspace-context";
 
 export async function POST(request: Request) {
@@ -36,13 +37,33 @@ export async function POST(request: Request) {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  const result = await scrapeBank(
-    workspaceId,
-    body.provider as BankProvider,
-    credentials,
-    sevenDaysAgo,
-    { manualTwoFactor }
+  // One Zero signs in with a code sent by SMS. Only the sync flow can ask
+  // for it, so here we can test a saved long-term token and nothing else.
+  const programmaticTwoFactor = Boolean(
+    BANK_PROVIDERS.find((b) => b.id === body.provider)?.supportsProgrammaticTwoFactor
   );
+  if (programmaticTwoFactor && !credentials.otpLongTermToken) {
+    return NextResponse.json({
+      success: false,
+      message:
+        "One Zero signs in with a code it texts to your phone, so it can't be tested here. Save, then press Sync: Spent will send the code and ask you for it.",
+    });
+  }
+
+  const result = programmaticTwoFactor
+    ? await scrapeOneZeroWithToken({
+        email: credentials.email,
+        password: credentials.password,
+        otpLongTermToken: credentials.otpLongTermToken,
+        startDate: sevenDaysAgo,
+      })
+    : await scrapeBank(
+        workspaceId,
+        body.provider as BankProvider,
+        credentials,
+        sevenDaysAgo,
+        { manualTwoFactor }
+      );
 
   if (!result.success) {
     return NextResponse.json({
@@ -53,7 +74,8 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     success: true,
-    message: "Connection successful",
+    // A test signs in and reads the last week but saves nothing.
+    message: `Signed in. Found ${result.accounts.length} ${result.accounts.length === 1 ? "account" : "accounts"}. Press Sync to import transactions.`,
     accountsFound: result.accounts.length,
   });
 }

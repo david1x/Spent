@@ -4,6 +4,8 @@ import { CompanyTypes, createScraper } from "israeli-bank-scrapers";
 import type { ScrapeResult, ScrapedTransaction } from "./types";
 import type { BankProvider } from "@/lib/types";
 import { getWorkspaceSetting } from "../db/queries/settings";
+import { formatSyncError } from "@/lib/sync-error";
+import { SpentIsracardScraper } from "./isracard";
 
 export const PROVIDER_MAP: Record<string, CompanyTypes> = {
   isracard: CompanyTypes.isracard,
@@ -108,6 +110,16 @@ function classifyError(error: unknown): {
     };
   }
 
+  // Puppeteer reports a closed tab or window this way. With "Show browser
+  // during sync" on, that's almost always the user closing it early.
+  if (/Target closed|Session closed|browser has disconnected|Connection closed/i.test(msg)) {
+    return {
+      retryable: false,
+      friendly:
+        "The browser window closed before the sync finished. Leave it open until Spent closes it. Some banks (Isracard, Amex) sign in in the background, so the login form in that window stays empty even when it's working.",
+    };
+  }
+
   return { retryable: false, friendly: null };
 }
 
@@ -154,7 +166,7 @@ async function runScrape(
     chromiumArgs.push("--no-sandbox");
   }
 
-  const scraper = createScraper({
+  const options = {
     companyId,
     startDate,
     combineInstallments: false,
@@ -164,7 +176,10 @@ async function runScrape(
     verbose: showBrowser,
     timeout: 60000,
     args: chromiumArgs,
-  });
+  };
+  // Isracard needs a click on its login page first; see ./isracard.ts.
+  const scraper =
+    provider === "isracard" ? new SpentIsracardScraper(options) : createScraper(options);
 
   // credentials shape varies by provider; the library accepts different types per bank
   const result = await scraper.scrape(
@@ -174,16 +189,20 @@ async function runScrape(
   if (!result.success) {
     const errorType = result.errorType ?? "GENERIC";
     console.error(`[scraper] failed (${errorType}):`, result.errorMessage);
-    const friendly = FRIENDLY_ERRORS[errorType];
     const detail = result.errorMessage
       ? sanitizeError(new Error(result.errorMessage))
       : errorType;
+    // The library reports bot blocks and empty responses as GENERIC, so the
+    // message pattern is more specific than the error type. Check it first.
+    const classified = result.errorMessage
+      ? classifyError(new Error(result.errorMessage)).friendly
+      : null;
+    const friendly =
+      classified ?? FRIENDLY_ERRORS[errorType] ?? "Scraping failed.";
     return {
       success: false,
       accounts: [],
-      errorMessage: friendly
-        ? `${friendly} (${detail})`
-        : `Scraping failed: ${detail}`,
+      errorMessage: formatSyncError(friendly, detail),
     };
   }
 
@@ -267,6 +286,6 @@ export async function scrapeBank(
   return {
     success: false,
     accounts: [],
-    errorMessage: friendly ? `${friendly} (${detail})` : detail,
+    errorMessage: friendly ? formatSyncError(friendly, detail) : detail,
   };
 }

@@ -63,7 +63,7 @@ export default function BankSettingsPage() {
   const availableToAdd = BANK_PROVIDERS.filter((b) => b.enabled);
 
   const handleSyncAll = () => {
-    integrations.forEach((i) => start(i.id));
+    integrations.forEach((i) => start(i.id, i.provider));
   };
 
   const sheetIntegration: Integration | null =
@@ -209,7 +209,7 @@ export default function BankSettingsPage() {
                     <SyncShortButton
                       syncing={sync.syncing}
                       stage={sync.stage}
-                      onClick={() => start(integration.id)}
+                      onClick={() => start(integration.id, integration.provider)}
                     />
                     <button
                       type="button"
