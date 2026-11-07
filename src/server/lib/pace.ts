@@ -95,18 +95,18 @@ export function pacePhrase(
   const lead = `You've spent ${formatILS(budgetedSpent)} of your ${formatILS(totalBudget)} ${monthLabel} target`;
 
   if (pctSpent > 100) {
-    return `${lead} — over budget, time to slow down.`;
+    return `${lead}, over budget. Time to slow down.`;
   }
   if (delta >= 25) {
-    return `${lead} — a touch over schedule, but easy to recover.`;
+    return `${lead}, a little over schedule but easy to recover.`;
   }
   if (delta <= -25) {
-    return `${lead} — well under schedule.`;
+    return `${lead}, well under schedule.`;
   }
   if (delta <= -10) {
-    return `${lead} — ahead of schedule.`;
+    return `${lead}, under schedule.`;
   }
-  return `${lead} — on schedule.`;
+  return `${lead}, on schedule.`;
 }
 
 function formatILS(amount: number): string {

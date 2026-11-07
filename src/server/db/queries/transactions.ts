@@ -3,17 +3,53 @@ import "server-only";
 import { getDb } from "../index";
 import { computeDedupHash } from "../../lib/dedup";
 import { detectKind } from "../../lib/transfers";
+import { countedSql, notCountedSql } from "./counted";
+import { scopeSql } from "../../lib/scope";
 import type {
   TransactionWithCategory,
   MonthlySummary,
   MerchantSummary,
   CategoryBreakdown,
+  TransactionListAggregates,
 } from "@/lib/types";
 import {
   isTransactionSortField,
   TRANSACTION_SORT_SQL,
 } from "@/lib/transaction-sort";
-export type TransactionKindFilter = "expense" | "income" | "all";
+/**
+ * "expense" / "income" split by sign only. "spending" / "counted_income" are
+ * the counted rows of each sign, and "not_counted" is the rest, so the three
+ * partition the list the same way the Transactions page totals do.
+ */
+export type TransactionKindFilter =
+  | "expense"
+  | "income"
+  | "all"
+  | "spending"
+  | "counted_income"
+  | "not_counted";
+
+/** Row counts toward spending/income totals (alias `t`). */
+function countedRowSql(): string {
+  return `(t.kind != 'transfer' AND ${countedSql("t")})`;
+}
+
+function kindFilterSql(kind: TransactionKindFilter): string | null {
+  switch (kind) {
+    case "income":
+      return "t.charged_amount > 0";
+    case "expense":
+      return "t.charged_amount < 0";
+    case "spending":
+      return `${countedRowSql()} AND t.charged_amount < 0`;
+    case "counted_income":
+      return `${countedRowSql()} AND t.charged_amount > 0`;
+    case "not_counted":
+      return `NOT ${countedRowSql()}`;
+    default:
+      return null;
+  }
+}
 
 interface RawTransaction {
   accountNumber: string;
@@ -157,6 +193,37 @@ interface QueryParams {
   /** @deprecated Use credentialIds */
   credentialId?: number;
   credentialIds?: number[];
+  /** Account keys: "12" for a whole login, "12:4321" for one card under it. */
+  accounts?: string[];
+  /** Also return per-segment counts, totals and per-day totals. */
+  withAggregates?: boolean;
+}
+
+/**
+ * Account filter keys from the Transactions page: "12" is a whole login,
+ * "12:4321" is one account (usually one card) under that login.
+ */
+function appendAccountKeysFilter(
+  conditions: string[],
+  values: (string | number)[],
+  keys: string[] | undefined,
+  columnPrefix = ""
+): void {
+  if (!keys || keys.length === 0) return;
+  const parts: string[] = [];
+  for (const key of keys) {
+    const [idPart, ...rest] = key.split(":");
+    const id = Number(idPart);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    if (rest.length === 0) {
+      parts.push(`${columnPrefix}credential_id = ?`);
+      values.push(id);
+    } else {
+      parts.push(`(${columnPrefix}credential_id = ? AND ${columnPrefix}account_number = ?)`);
+      values.push(id, rest.join(":"));
+    }
+  }
+  if (parts.length > 0) conditions.push(`(${parts.join(" OR ")})`);
 }
 
 function appendCredentialIdsFilter(
@@ -186,23 +253,29 @@ const TRANSACTION_LIST_FROM = `
 
 const TRANSACTION_LIST_SELECT = `
   SELECT t.*, c.name AS category_name, c.color AS category_color,
-         bc.label AS account_label
+         bc.label AS account_label,
+         (SELECT cb.label FROM bank_credentials cb WHERE cb.id = t.card_bill_credential_id) AS card_bill_label,
+         CASE WHEN ${countedRowSql()} THEN 1 ELSE 0 END AS is_counted
   ${TRANSACTION_LIST_FROM}`;
 
 export function queryTransactions(
   workspaceId: number,
   params: QueryParams
-): { transactions: TransactionWithCategory[]; total: number } {
+): {
+  transactions: TransactionWithCategory[];
+  total: number;
+  aggregates?: TransactionListAggregates;
+} {
   const db = getDb();
   const conditions: string[] = ["t.workspace_id = ?"];
   const values: (string | number)[] = [workspaceId];
 
   if (params.from) {
-    conditions.push("t.date >= ?");
+    conditions.push("date(t.date, 'localtime') >= ?");
     values.push(params.from);
   }
   if (params.to) {
-    conditions.push("t.date <= ?");
+    conditions.push("date(t.date, 'localtime') <= ?");
     values.push(params.to);
   }
   if (params.search) {
@@ -218,12 +291,6 @@ export function queryTransactions(
     conditions.push("t.category_id = ?");
     values.push(params.category);
   }
-  const kind: TransactionKindFilter = params.kind ?? "all";
-  if (kind === "income") {
-    conditions.push("t.charged_amount > 0");
-  } else if (kind === "expense") {
-    conditions.push("t.charged_amount < 0");
-  }
   if (params.provider) {
     conditions.push("t.provider = ?");
     values.push(params.provider);
@@ -235,6 +302,14 @@ export function queryTransactions(
         ? [params.credentialId]
         : undefined;
   appendCredentialIdsFilter(conditions, values, credentialIds, "t.");
+  appendAccountKeysFilter(conditions, values, params.accounts, "t.");
+  // The budget scope (bank bundles) narrows the list like every total.
+  conditions.push(scopeSql("t"));
+
+  // Segment counts ignore the type filter, so capture the WHERE before it.
+  const baseWhere = `WHERE ${conditions.join(" AND ")}`;
+  const kindSql = kindFilterSql(params.kind ?? "all");
+  if (kindSql) conditions.push(kindSql);
 
   const where = `WHERE ${conditions.join(" AND ")}`;
 
@@ -259,6 +334,67 @@ export function queryTransactions(
   return {
     transactions: rows.map(mapTransactionRow),
     total: countRow.total,
+    aggregates: params.withAggregates
+      ? queryListAggregates(baseWhere, where, values)
+      : undefined,
+  };
+}
+
+function queryListAggregates(
+  baseWhere: string,
+  where: string,
+  values: (string | number)[]
+): TransactionListAggregates {
+  const db = getDb();
+  const counted = countedRowSql();
+  // Totals follow Home (completed rows only); counts include pending rows
+  // because they are listed too.
+  const totals = db
+    .prepare(
+      `SELECT COUNT(*) AS allCount,
+              COALESCE(SUM(CASE WHEN ${counted} AND t.charged_amount < 0 THEN 1 ELSE 0 END), 0) AS spendingCount,
+              COALESCE(SUM(CASE WHEN ${counted} AND t.charged_amount > 0 THEN 1 ELSE 0 END), 0) AS incomeCount,
+              COALESCE(SUM(CASE WHEN NOT ${counted} THEN 1 ELSE 0 END), 0) AS notCountedCount,
+              COALESCE(SUM(CASE WHEN t.status = 'completed' AND ${counted} AND t.charged_amount < 0 THEN -t.charged_amount ELSE 0 END), 0) AS spent,
+              COALESCE(SUM(CASE WHEN t.status = 'completed' AND ${counted} AND t.charged_amount > 0 THEN t.charged_amount ELSE 0 END), 0) AS income,
+              COALESCE(SUM(CASE WHEN t.status = 'completed' AND NOT ${counted} AND t.charged_amount < 0 THEN -t.charged_amount ELSE 0 END), 0) AS notCounted
+       FROM transactions t
+       ${baseWhere}`
+    )
+    .get(...values) as {
+    allCount: number;
+    spendingCount: number;
+    incomeCount: number;
+    notCountedCount: number;
+    spent: number;
+    income: number;
+    notCounted: number;
+  };
+
+  // Day headers sum the rows shown under them, pending included.
+  const days = db
+    .prepare(
+      `SELECT t.date AS date,
+              COALESCE(SUM(CASE WHEN ${counted} AND t.charged_amount < 0 THEN -t.charged_amount ELSE 0 END), 0) AS spent,
+              COALESCE(SUM(CASE WHEN ${counted} AND t.charged_amount > 0 THEN t.charged_amount ELSE 0 END), 0) AS income,
+              COALESCE(SUM(CASE WHEN NOT ${counted} AND t.charged_amount < 0 THEN -t.charged_amount ELSE 0 END), 0) AS notCounted
+       FROM transactions t
+       ${where}
+       GROUP BY t.date`
+    )
+    .all(...values) as TransactionListAggregates["days"];
+
+  return {
+    counts: {
+      all: totals.allCount,
+      spending: totals.spendingCount,
+      income: totals.incomeCount,
+      notCounted: totals.notCountedCount,
+    },
+    spent: totals.spent,
+    income: totals.income,
+    notCounted: totals.notCounted,
+    days,
   };
 }
 
@@ -345,7 +481,7 @@ export function getMonthlySummary(
          AND date >= date('now', '-' || ? || ' months')
          AND status = 'completed'
          AND kind = 'expense'
-         AND is_excluded = 0
+         AND ${countedSql()}
        GROUP BY month
        ORDER BY month ASC`
     )
@@ -364,8 +500,8 @@ export function getTopMerchants(
               SUM(ABS(charged_amount)) as amount,
               COUNT(*) as count
        FROM transactions
-       WHERE workspace_id = ? AND date >= ? AND date <= ? AND status = 'completed' AND kind = 'expense'
-         AND is_excluded = 0
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense'
+         AND ${countedSql()}
        GROUP BY description
        ORDER BY amount DESC
        LIMIT ?`
@@ -388,8 +524,8 @@ export function getCategoryBreakdown(
          COUNT(*) as count
        FROM transactions t
        LEFT JOIN categories c ON t.category_id = c.id
-       WHERE t.workspace_id = ? AND t.date >= ? AND t.date <= ? AND t.status = 'completed' AND t.kind = 'expense'
-         AND t.is_excluded = 0
+       WHERE t.workspace_id = ? AND date(t.date, 'localtime') >= ? AND date(t.date, 'localtime') <= ? AND t.status = 'completed' AND t.kind = 'expense'
+         AND ${countedSql("t")}
        GROUP BY t.category_id
        ORDER BY amount DESC`
     )
@@ -413,8 +549,8 @@ export function getCategorySpendInRange(
               SUM(ABS(charged_amount)) as amount,
               COUNT(*) as count
        FROM transactions
-       WHERE workspace_id = ? AND date >= ? AND date <= ? AND status = 'completed' AND kind = 'expense' AND category_id IS NOT NULL
-         AND is_excluded = 0
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense' AND category_id IS NOT NULL
+         AND ${countedSql()}
        GROUP BY category_id`
     )
     .all(workspaceId, from, to) as CategorySpend[];
@@ -438,8 +574,8 @@ export function getTopMerchantPerCategory(
          SELECT category_id, description, SUM(ABS(charged_amount)) as amount,
                 ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY SUM(ABS(charged_amount)) DESC) as rn
          FROM transactions
-         WHERE workspace_id = ? AND date >= ? AND date <= ? AND status = 'completed' AND kind = 'expense' AND category_id IS NOT NULL
-           AND is_excluded = 0
+         WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense' AND category_id IS NOT NULL
+           AND ${countedSql()}
          GROUP BY category_id, description
        )
        WHERE rn = 1`
@@ -469,12 +605,13 @@ export function getCategorySpendByDay(
               COALESCE(SUM(ABS(t.charged_amount)), 0) as amount
        FROM days
        LEFT JOIN transactions t
-         ON substr(t.date, 1, 10) = days.d
+         ON date(t.date, 'localtime') = days.d
          AND t.workspace_id = ?
          AND t.category_id = ?
          AND t.kind = 'expense'
          AND t.status = 'completed'
          AND t.is_excluded = 0
+         AND ${scopeSql("t")}
        GROUP BY days.d
        ORDER BY days.d ASC`
     )
@@ -501,10 +638,11 @@ export function getTopMerchantsForCategory(
               COUNT(*) as count
        FROM transactions
        WHERE workspace_id = ? AND category_id = ?
-         AND date >= ? AND date <= ?
+         AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
          AND status = 'completed'
          AND kind = 'expense'
          AND is_excluded = 0
+         AND ${scopeSql()}
        GROUP BY description
        ORDER BY amount DESC
        LIMIT ?`
@@ -521,8 +659,8 @@ export function getPeriodTotal(
     .prepare(
       `SELECT COALESCE(SUM(ABS(charged_amount)), 0) as total
        FROM transactions
-       WHERE workspace_id = ? AND date >= ? AND date <= ? AND status = 'completed' AND kind = 'expense'
-         AND is_excluded = 0`
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense'
+         AND ${countedSql()}`
     )
     .get(workspaceId, from, to) as { total: number };
   return row.total;
@@ -537,8 +675,8 @@ export function getPeriodCount(
     .prepare(
       `SELECT COUNT(*) as count
        FROM transactions
-       WHERE workspace_id = ? AND date >= ? AND date <= ? AND status = 'completed' AND kind = 'expense'
-         AND is_excluded = 0`
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense'
+         AND ${countedSql()}`
     )
     .get(workspaceId, from, to) as { count: number };
   return row.count;
@@ -574,6 +712,19 @@ interface TransactionRow {
   category_name?: string | null;
   category_color?: string | null;
   account_label?: string | null;
+  card_bill_label?: string | null;
+  card_bill_accounts?: string | null;
+  is_counted?: number | null;
+}
+
+/** "CAL ••4321" for one card, just "CAL" when one debit paid several. */
+function cardBillLabel(
+  label: string | null | undefined,
+  accounts: string | null | undefined
+): string | null {
+  if (!label) return null;
+  const list = (accounts ?? "").split(",").filter(Boolean);
+  return list.length === 1 ? `${label} ••${list[0].slice(-4)}` : label;
 }
 
 function mapTransactionRow(row: unknown): TransactionWithCategory {
@@ -600,6 +751,7 @@ function mapTransactionRow(row: unknown): TransactionWithCategory {
     provider: r.provider,
     credentialId: r.credential_id ?? null,
     accountLabel: r.account_label ?? null,
+    cardBillLabel: cardBillLabel(r.card_bill_label, r.card_bill_accounts),
     syncRunId: r.sync_run_id,
     kind: r.kind as "expense" | "income" | "transfer",
     needsReview: r.needs_review === 1,
@@ -608,6 +760,7 @@ function mapTransactionRow(row: unknown): TransactionWithCategory {
     updatedAt: r.updated_at,
     categoryName: r.category_name ?? null,
     categoryColor: r.category_color ?? null,
+    ...(r.is_counted != null ? { isCounted: r.is_counted === 1 } : {}),
   };
 }
 
@@ -697,6 +850,8 @@ export interface TransactionsSummary {
     largest: TransactionWithCategory | null;
   };
   net: number;
+  /** Outflows left out of `expense`: card bills, own-account transfers, excluded rows. */
+  notCounted: { total: number; count: number };
   topMerchants: { description: string; total: number; count: number }[];
   pendingReviewCount: number;
 }
@@ -705,6 +860,8 @@ export interface TransactionsSummaryParams {
   /** @deprecated Use credentialIds */
   credentialId?: number;
   credentialIds?: number[];
+  /** Account keys: "12" for a whole login, "12:4321" for one card under it. */
+  accounts?: string[];
 }
 
 export function getTransactionsSummary(
@@ -716,10 +873,13 @@ export function getTransactionsSummary(
   const db = getDb();
   const baseConditions = [
     "workspace_id = ?",
-    "date >= ?",
-    "date <= ?",
+    "date(date, 'localtime') >= ?",
+    "date(date, 'localtime') <= ?",
     "status = 'completed'",
-    "is_excluded = 0",
+    // Card bill payments and not-counted rows would double count spending
+    // already itemized on the card statement. Match Home's totals.
+    "kind != 'transfer'",
+    countedSql(),
   ];
   const baseValues: (string | number)[] = [workspaceId, from, to];
   const summaryCredentialIds =
@@ -729,6 +889,7 @@ export function getTransactionsSummary(
         ? [params.credentialId]
         : undefined;
   appendCredentialIdsFilter(baseConditions, baseValues, summaryCredentialIds);
+  appendAccountKeysFilter(baseConditions, baseValues, params.accounts);
   const baseWhere = baseConditions.join(" AND ");
 
   const incomeAgg = db
@@ -751,14 +912,16 @@ export function getTransactionsSummary(
     const cmp = sign === "income" ? "> 0" : "< 0";
     const tConditions = [
       "t.workspace_id = ?",
-      "t.date >= ?",
-      "t.date <= ?",
+      "date(t.date, 'localtime') >= ?",
+      "date(t.date, 'localtime') <= ?",
       "t.status = 'completed'",
-      "t.is_excluded = 0",
+      "t.kind != 'transfer'",
+      countedSql("t"),
       `t.charged_amount ${cmp}`,
     ];
     const tValues: (string | number)[] = [workspaceId, from, to];
     appendCredentialIdsFilter(tConditions, tValues, summaryCredentialIds, "t.");
+    appendAccountKeysFilter(tConditions, tValues, params.accounts, "t.");
     const row = db
       .prepare(
         `${TRANSACTION_LIST_SELECT}
@@ -783,13 +946,25 @@ export function getTransactionsSummary(
     )
     .all(...baseValues) as { description: string; total: number; count: number }[];
 
-  const pendingReview = db
+  const notCountedConditions = [
+    "workspace_id = ?",
+    "date(date, 'localtime') >= ?",
+    "date(date, 'localtime') <= ?",
+    "status = 'completed'",
+    "charged_amount < 0",
+    `(kind = 'transfer' OR ${notCountedSql()})`,
+    scopeSql(),
+  ];
+  const notCountedValues: (string | number)[] = [workspaceId, from, to];
+  appendCredentialIdsFilter(notCountedConditions, notCountedValues, summaryCredentialIds);
+  appendAccountKeysFilter(notCountedConditions, notCountedValues, params.accounts);
+  const notCountedAgg = db
     .prepare(
-      `SELECT COUNT(*) as count
+      `SELECT COALESCE(SUM(ABS(charged_amount)), 0) as total, COUNT(*) as count
        FROM transactions
-       WHERE ${baseWhere} AND needs_review = 1`
+       WHERE ${notCountedConditions.join(" AND ")}`
     )
-    .get(...baseValues) as { count: number };
+    .get(...notCountedValues) as { total: number; count: number };
 
   return {
     income: {
@@ -803,9 +978,24 @@ export function getTransactionsSummary(
       largest: pickLargest("expense"),
     },
     net: incomeAgg.total - expenseAgg.total,
+    notCounted: notCountedAgg,
     topMerchants: topMerchantsRows,
-    pendingReviewCount: pendingReview.count,
+    // The review queue isn't scoped to a month or account: Home and
+    // Transactions must show the same number.
+    pendingReviewCount: countReviewQueue(workspaceId),
   };
+}
+
+/** Transactions waiting in the review queue. Single source for every badge. */
+export function countReviewQueue(workspaceId: number): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) as count FROM transactions
+       WHERE workspace_id = ? AND needs_review = 1 AND status = 'completed'
+         AND is_excluded = 0`
+    )
+    .get(workspaceId) as { count: number };
+  return row.count;
 }
 
 export function getNeedsReviewCountByCategory(
@@ -817,10 +1007,11 @@ export function getNeedsReviewCountByCategory(
     .prepare(
       `SELECT category_id as categoryId, COUNT(*) as count
        FROM transactions
-       WHERE workspace_id = ? AND date >= ? AND date <= ?
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
          AND status = 'completed'
          AND kind = 'expense'
          AND needs_review = 1
+         AND ${scopeSql()}
          AND category_id IS NOT NULL
        GROUP BY category_id`
     )

@@ -4,15 +4,23 @@ import {
   type TransactionKindFilter,
 } from "@/server/db/queries/transactions";
 import { getWorkspaceIdFromRequest } from "@/server/lib/workspace-context";
+import { withRequestScope } from "@/server/lib/scope";
 
 function parseKind(raw: string | null): TransactionKindFilter | undefined {
-  if (raw === "expense" || raw === "income" || raw === "all") {
+  if (
+    raw === "expense" ||
+    raw === "income" ||
+    raw === "all" ||
+    raw === "spending" ||
+    raw === "counted_income" ||
+    raw === "not_counted"
+  ) {
     return raw;
   }
   return undefined;
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const workspaceId = getWorkspaceIdFromRequest(request);
   const { searchParams } = new URL(request.url);
 
@@ -27,6 +35,11 @@ export async function GET(request: Request) {
     .getAll("credentialIds")
     .map((v) => Number(v))
     .filter((n) => Number.isFinite(n) && n > 0);
+
+  // "12" is a whole login, "12:4321" one card under it.
+  const accounts = searchParams
+    .getAll("accounts")
+    .filter((k) => /^d+(:[A-Za-z0-9-]{1,32})?$/.test(k));
 
   const result = queryTransactions(workspaceId, {
     from: searchParams.get("from") ?? undefined,
@@ -47,7 +60,15 @@ export async function GET(request: Request) {
     kind: parseKind(searchParams.get("kind")),
     provider: searchParams.get("provider") ?? undefined,
     credentialIds: credentialIds.length > 0 ? credentialIds : undefined,
+    accounts: accounts.length > 0 ? accounts : undefined,
+    withAggregates: searchParams.get("aggregates") === "1",
   });
 
   return NextResponse.json(result);
+}
+
+/** Every total in this route follows the budget scope (bank bundles) the client picked. */
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const [request] = args;
+  return withRequestScope(request, getWorkspaceIdFromRequest(request), () => handleGET(...args));
 }

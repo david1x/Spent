@@ -37,9 +37,11 @@ import {
   setCategoryParent,
   updateBudget,
   updateCategoryBudgetMode,
+  updateCategoryCountsInSpending,
   updateCategoryDescription,
 } from "@/lib/api";
 import type { Category, CategoryWithData } from "@/lib/types";
+import { formatNumberWhole } from "@/components/home/home-format";
 
 const NONE_VALUE = "__none__";
 const DESCRIPTION_MAX = 500;
@@ -149,6 +151,10 @@ function Body({
         ) : (
           <BudgetSection category={category} data={data} />
         )}
+
+        {category.kind === "expense" && !isParentGroup ? (
+          <CountingSection category={category} />
+        ) : null}
 
         <GroupSection
           category={category}
@@ -379,21 +385,68 @@ function BudgetSection({
             </InputGroup>
             {data ? (
               <p className="text-[11px] text-muted-foreground">
-                Spent ₪{Math.round(data.spent).toLocaleString("en-IL")} this
+                Spent ₪{formatNumberWhole(data.spent, "en")} this
                 month
                 {data.vsTypical && data.vsTypical.typical > 0 ? (
                   <>
                     {" "}
                     · typical ≈ ₪
-                    {Math.round(data.vsTypical.typical).toLocaleString(
-                      "en-IL"
-                    )}
+                    {formatNumberWhole(data.vsTypical.typical, "en")}
                   </>
                 ) : null}
               </p>
             ) : null}
           </div>
         ) : null}
+      </div>
+    </section>
+  );
+}
+
+function CountingSection({ category }: { category: Category }) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (next: boolean) =>
+      updateCategoryCountsInSpending(category.id, next),
+    onSuccess: (_result, next) => {
+      // Every total in the app depends on this flag.
+      queryClient.invalidateQueries();
+      toast.success(
+        next
+          ? `${category.name} now counts as spending`
+          : `${category.name} is no longer counted as spending`
+      );
+    },
+    onError: () => toast.error("Couldn't update this category."),
+  });
+
+  return (
+    <section>
+      <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        Totals
+      </div>
+      <div className="mt-3 rounded-xl border border-border bg-card p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1 space-y-1">
+            <Label
+              htmlFor={`counts-${category.id}`}
+              className="text-sm font-medium"
+            >
+              Count in spending
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {category.countsInSpending
+                ? "Included in your monthly spending and budgets."
+                : "Shown in your transactions, faded, but left out of spending and budgets. Use this for money you move between your own accounts."}
+            </p>
+          </div>
+          <Switch
+            id={`counts-${category.id}`}
+            checked={category.countsInSpending}
+            disabled={mutation.isPending}
+            onCheckedChange={(next) => mutation.mutate(next)}
+          />
+        </div>
       </div>
     </section>
   );
@@ -521,7 +574,7 @@ function DescriptionSection({ category }: { category: Category }) {
           onBlur={handleBlur}
           rows={4}
           maxLength={DESCRIPTION_MAX}
-          placeholder={`Describe what belongs in "${category.name}" — and what does NOT.`}
+          placeholder={`Describe what belongs in "${category.name}", and what does NOT.`}
           className="block w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           disabled={mutation.isPending}
         />

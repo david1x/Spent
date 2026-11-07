@@ -39,6 +39,35 @@ export interface TransactionWithCategory extends Transaction {
   categoryName: string | null;
   categoryColor: string | null;
   isExcluded: boolean;
+  /**
+   * True when the row counts toward spending/income totals: not a card bill or
+   * own-account transfer, not excluded, and its category counts in spending.
+   * Only set by the transaction list query.
+   */
+  isCounted?: boolean;
+  /** When this bank debit settles a linked card statement: that card login label. */
+  cardBillLabel?: string | null;
+}
+
+/** Per-segment counts and totals for the Transactions list, ignoring the type segment. */
+export interface TransactionListAggregates {
+  counts: {
+    all: number;
+    spending: number;
+    income: number;
+    notCounted: number;
+  };
+  /** Counted outflows (completed rows), as a positive number. */
+  spent: number;
+  /** Counted inflows (completed rows). */
+  income: number;
+  /** Outflows left out of totals (completed rows), as a positive number. */
+  notCounted: number;
+  /**
+   * Per raw `date` value for the visible rows (type segment applied). Clients
+   * bucket these into local days, since stored dates are UTC instants.
+   */
+  days: { date: string; spent: number; income: number; notCounted: number }[];
 }
 
 export type CategoryKind = "expense" | "income";
@@ -54,6 +83,8 @@ export interface Category {
   kind: CategoryKind;
   budgetMode: BudgetMode;
   description: string | null;
+  /** False for categories that only move money around (Transfers by default). */
+  countsInSpending: boolean;
 }
 
 export type CategoryViewMode = "collapsed" | "expanded";
@@ -158,29 +189,53 @@ export type HomeSection =
   | "needsAttention"
   | "bankHealth";
 
+export type HomePaceStatus = "on" | "ahead" | "over";
+
 export interface HomeThisMonth {
   spent: number;
   budget: number;
-  deltaVsLastMonth: number | null;
   pacePhrase: string;
   daysUntilPayday: number;
   timeElapsedPercent: number;
   monthLabel: string;
+  /** First day of the current period, YYYY-MM-DD. */
+  periodStart: string;
+  /** 1-based day within the period that today falls on. */
+  dayOfPeriod: number;
+  periodLength: number;
+  /** Where spending would be today if it tracked the budget evenly. 0 without a budget. */
+  expectedByToday: number;
+  /** Straight-line projection of spending to the end of the period. */
+  projected: number;
+  /** Null when there is no budget to pace against. */
+  paceStatus: HomePaceStatus | null;
+  /** Spending over the same number of days at the start of last period. Null without history. */
+  lastPeriodSameDays: number | null;
+  /** First day of last period, YYYY-MM-DD. */
+  lastPeriodStart: string;
 }
 
 export interface HomeCashFlow {
   income: number;
   expenses: number;
   net: number;
+  /** Outflows left out of `expenses`: card bills, own-account transfers, excluded rows. */
+  notCounted: number;
+  notCountedCount: number;
 }
 
 export interface HomeCategorySnapshotItem {
   categoryId: number;
   name: string;
   color: string;
+  icon: string | null;
   spent: number;
   budget: number;
   percentSpent: number;
+  /** Counted purchases this period, subcategories included. */
+  count: number;
+  /** Merchant with the most spend in this category this period. */
+  topMerchant: string | null;
 }
 
 export interface HomeHistoricalTrendPoint {
@@ -199,6 +254,13 @@ export interface HomeRecentTransaction {
   kind: "expense" | "income" | "transfer";
   categoryName: string | null;
   categoryColor: string | null;
+  categoryIcon: string | null;
+  provider: string;
+  providerName: string;
+  /** Last four digits of the account or card number, when it has any. */
+  accountLast4: string | null;
+  /** False when the row is shown but left out of spending totals. */
+  isCounted: boolean;
 }
 
 export interface HomeTopMerchant {
@@ -211,6 +273,8 @@ export interface HomeNeedsAttention {
   uncategorized: number;
   lowConfidence: number;
   flagged: number;
+  /** Distinct transactions across the three groups; one row can be in several. */
+  total: number;
 }
 
 export interface HomeBankHealthItem {
@@ -219,6 +283,9 @@ export interface HomeBankHealthItem {
   lastSyncAt: string | null;
   status: "ok" | "stale" | "error" | "never";
   errorMessage: string | null;
+  /** Last run that did not fail, even when the latest one did. */
+  lastSuccessAt: string | null;
+  transactionCount: number;
 }
 
 export interface HomeSectionError {
@@ -270,6 +337,27 @@ export interface Integration {
   requiresManualTwoFactor: boolean;
   /** True when a long-term OTP token is already stored (programmatic 2FA banks only). */
   hasTwoFactorToken: boolean;
+  /** Cards only: bank debits currently matched as this login's card bills. */
+  matchedBillCount: number;
+  /** Accounts seen under this login (for card logins, one per card), most active first. */
+  accounts: { accountNumber: string; transactionCount: number }[];
+  /** Banks only: cards linked to this bank as "Paid from". */
+  linkedCardCount: number;
+}
+
+/** One card under a card login (a Cal user can hold several cards). */
+export interface CardAccount {
+  /** As reported by the card company; usually the last 4 digits. */
+  accountNumber: string;
+  purchaseCount: number;
+  lastPurchaseAt: string;
+  billingCycles: number;
+  /** Bank login whose account pays this card's bill. */
+  paidFromCredentialId: number | null;
+  /** Bank debits currently matched as this card's bills. */
+  matchedBills: number;
+  /** For unlinked cards: the bank with the most debits matching this card's bills. */
+  suggestion: { bankCredentialId: number; matchingBills: number } | null;
 }
 
 export interface SetupStatus {
@@ -285,6 +373,8 @@ export interface AppSettings {
   ollamaModel: string;
   showBrowser: boolean;
   paydayDay: number;
+  /** "payday": budget periods run from payday to the day before the next one. */
+  budgetPeriod: "calendar" | "payday";
   monthlyTarget: number | null;
   autoSyncEnabled: boolean;
   autoSyncTime: string;

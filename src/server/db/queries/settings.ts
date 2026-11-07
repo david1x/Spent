@@ -2,6 +2,7 @@ import "server-only";
 
 import { getDb } from "../index";
 import type { AppSettings } from "@/lib/types";
+import { periodStartDay } from "@/lib/period";
 
 // Global settings live in the `settings` table and apply to every workspace.
 // Currently: ai_provider, ai_ollama_url, ai_ollama_model, plus the encrypted
@@ -75,6 +76,8 @@ export function getAppSettings(workspaceId: number): AppSettings {
     ollamaModel: getGlobalSetting("ai_ollama_model") ?? "llama3.2:3b",
     showBrowser: getWorkspaceSetting(workspaceId, "scraper_show_browser") === "true",
     paydayDay: Number(getWorkspaceSetting(workspaceId, "payday_day") ?? "1"),
+    budgetPeriod:
+      getWorkspaceSetting(workspaceId, "budget_period") === "payday" ? "payday" : "calendar",
     monthlyTarget: Number.isFinite(target) && target > 0 ? target : null,
     autoSyncEnabled: getGlobalSetting("auto_sync_enabled") === "true",
     autoSyncTime:
@@ -112,6 +115,13 @@ export function updateAppSettings(
       const clamped = Math.max(1, Math.min(28, Math.round(settings.paydayDay)));
       setWorkspaceSetting(workspaceId, "payday_day", String(clamped));
     }
+    if (settings.budgetPeriod !== undefined) {
+      setWorkspaceSetting(
+        workspaceId,
+        "budget_period",
+        settings.budgetPeriod === "payday" ? "payday" : "calendar"
+      );
+    }
     if (settings.monthlyTarget !== undefined) {
       const t = settings.monthlyTarget;
       if (t == null || !Number.isFinite(t) || t <= 0) {
@@ -145,4 +155,13 @@ export function updateAppSettings(
   });
   update();
   return getAppSettings(workspaceId);
+}
+
+/**
+ * Day of month the workspace's budget periods start on: 1 for calendar
+ * months, or the payday when budgets run payday to payday.
+ */
+export function getPeriodStartDay(workspaceId: number): number {
+  const mode = getWorkspaceSetting(workspaceId, "budget_period") === "payday" ? "payday" : "calendar";
+  return periodStartDay(mode, Number(getWorkspaceSetting(workspaceId, "payday_day") ?? "1"));
 }

@@ -1,7 +1,6 @@
 import "server-only";
 
 import { getDb } from "../index";
-import { toLocalISODate } from "../../lib/date-utils";
 import type {
   HomeBankHealthItem,
   HomeCashFlow,
@@ -11,6 +10,10 @@ import type {
   HomeRecentTransaction,
 } from "@/lib/types";
 import { BANK_PROVIDERS } from "@/lib/types";
+import { countedSql, notCountedSql } from "./counted";
+import { scopeSql } from "../../lib/scope";
+import { countReviewQueue } from "./transactions";
+import { periodContaining, periodRange, shiftPeriod } from "@/lib/period";
 
 export function getCashFlow(
   workspaceId: number,
@@ -22,51 +25,67 @@ export function getCashFlow(
     .prepare(
       `SELECT COALESCE(SUM(charged_amount), 0) as total
        FROM transactions
-       WHERE workspace_id = ? AND date >= ? AND date <= ?
-         AND status = 'completed' AND kind = 'income' AND is_excluded = 0`
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
+         AND status = 'completed' AND kind = 'income' AND ${countedSql()}`
     )
     .get(workspaceId, from, to) as { total: number };
   const expenses = db
     .prepare(
       `SELECT COALESCE(SUM(ABS(charged_amount)), 0) as total
        FROM transactions
-       WHERE workspace_id = ? AND date >= ? AND date <= ?
-         AND status = 'completed' AND kind = 'expense' AND is_excluded = 0`
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
+         AND status = 'completed' AND kind = 'expense' AND ${countedSql()}`
     )
     .get(workspaceId, from, to) as { total: number };
+  // Money that left an account but isn't spending: card bill payments,
+  // transfers between your own accounts, and anything you chose not to count.
+  const notCounted = db
+    .prepare(
+      `SELECT COALESCE(SUM(ABS(charged_amount)), 0) as total, COUNT(*) as count
+       FROM transactions
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
+         AND status = 'completed' AND charged_amount < 0
+         AND (kind = 'transfer' OR ${notCountedSql()}) AND ${scopeSql()}`
+    )
+    .get(workspaceId, from, to) as { total: number; count: number };
   return {
     income: income.total,
     expenses: expenses.total,
     net: income.total - expenses.total,
+    notCounted: notCounted.total,
+    notCountedCount: notCounted.count,
   };
 }
 
 export function getHistoricalTrend(
   workspaceId: number,
-  monthsBack: number
+  monthsBack: number,
+  /** 1 for calendar months; the payday when budgets run payday to payday. */
+  startDay = 1
 ): HomeHistoricalTrendPoint[] {
   const db = getDb();
-  const now = new Date();
-  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const current = periodContaining(new Date(), startDay);
+  const keyOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const currentMonthKey = keyOf(current.start);
 
+  // Each point is a budget period, named after the month it starts in.
   const months: { key: string; label: string; from: string; to: string }[] = [];
   for (let i = monthsBack - 1; i >= 0; i--) {
-    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-    const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`;
+    const period = shiftPeriod(current, -i, startDay);
+    const { from, to } = periodRange(period);
     months.push({
-      key,
-      label: start.toLocaleDateString("en-US", { month: "short" }),
-      from: toLocalISODate(start),
-      to: toLocalISODate(end),
+      key: keyOf(period.start),
+      label: period.start.toLocaleDateString("en-US", { month: "short" }),
+      from,
+      to,
     });
   }
 
   const stmt = db.prepare(
     `SELECT COALESCE(SUM(ABS(charged_amount)), 0) as total
      FROM transactions
-     WHERE workspace_id = ? AND date >= ? AND date <= ?
-       AND status = 'completed' AND kind = 'expense' AND is_excluded = 0`
+     WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
+       AND status = 'completed' AND kind = 'expense' AND ${countedSql()}`
   );
 
   return months.map((m) => {
@@ -88,11 +107,13 @@ export function getRecentTransactionsForHome(
     .prepare(
       `SELECT t.id, t.date, t.description, t.charged_amount as chargedAmount,
               t.charged_currency as chargedCurrency, t.kind,
-              c.name as categoryName, c.color as categoryColor
+              c.name as categoryName, c.color as categoryColor, c.icon as categoryIcon,
+              t.provider, t.account_number as accountNumber,
+              CASE WHEN ${countedSql("t")} THEN 1 ELSE 0 END as counted
        FROM transactions t
        LEFT JOIN categories c ON t.category_id = c.id
        WHERE t.workspace_id = ? AND t.status = 'completed' AND t.kind != 'transfer'
-         AND t.is_excluded = 0
+         AND t.is_excluded = 0 AND ${scopeSql("t")}
        ORDER BY t.date DESC, t.id DESC
        LIMIT ?`
     )
@@ -105,8 +126,21 @@ export function getRecentTransactionsForHome(
     kind: "expense" | "income" | "transfer";
     categoryName: string | null;
     categoryColor: string | null;
+    categoryIcon: string | null;
+    provider: string;
+    accountNumber: string | null;
+    counted: number;
   }>;
-  return rows;
+  return rows.map(({ accountNumber, counted, ...row }) => {
+    const digits = (accountNumber ?? "").replace(/\D/g, "");
+    return {
+      ...row,
+      providerName:
+        BANK_PROVIDERS.find((p) => p.id === row.provider)?.name ?? row.provider,
+      accountLast4: digits.length >= 4 ? digits.slice(-4) : null,
+      isCounted: counted === 1,
+    };
+  });
 }
 
 export function getNeedsAttentionCounts(
@@ -127,16 +161,22 @@ export function getNeedsAttentionCounts(
          AND category_source = 'ai' AND status = 'completed' AND is_excluded = 0`
     )
     .get(workspaceId) as { count: number };
-  const flagged = db
+  const total = db
     .prepare(
       `SELECT COUNT(*) as count FROM transactions
-       WHERE workspace_id = ? AND needs_review = 1 AND status = 'completed' AND is_excluded = 0`
+       WHERE workspace_id = ? AND status = 'completed' AND is_excluded = 0
+         AND (
+           (category_id IS NULL AND kind = 'expense')
+           OR (ai_confidence IS NOT NULL AND ai_confidence < 0.5 AND category_source = 'ai')
+           OR needs_review = 1
+         )`
     )
     .get(workspaceId) as { count: number };
   return {
     uncategorized: uncategorized.count,
     lowConfidence: lowConfidence.count,
-    flagged: flagged.count,
+    flagged: countReviewQueue(workspaceId),
+    total: total.count,
   };
 }
 
@@ -153,54 +193,54 @@ export function getBankHealth(workspaceId: number): HomeBankHealthItem[] {
      WHERE workspace_id = ? AND provider = ?
      ORDER BY started_at DESC LIMIT 1`
   );
+  const lastSuccessStmt = db.prepare(
+    `SELECT MAX(completed_at) as at FROM sync_runs
+     WHERE workspace_id = ? AND provider = ? AND status != 'failed'
+       AND completed_at IS NOT NULL`
+  );
+  const countStmt = db.prepare(
+    `SELECT COUNT(*) as count FROM transactions WHERE workspace_id = ? AND provider = ?`
+  );
 
   const staleThresholdMs = 24 * 60 * 60 * 1000;
   const now = Date.now();
 
-  return creds.map(({ provider }) => {
+  return creds.map(({ provider }): HomeBankHealthItem => {
     const latest = latestRunStmt.get(workspaceId, provider) as
       | { status: string; completed_at: string | null; error_message: string | null }
       | undefined;
+    const lastSuccessAt =
+      (lastSuccessStmt.get(workspaceId, provider) as { at: string | null }).at;
+    const transactionCount = (
+      countStmt.get(workspaceId, provider) as { count: number }
+    ).count;
     const providerInfo = BANK_PROVIDERS.find((p) => p.id === provider);
-    const providerName = providerInfo?.name ?? provider;
+    const base = {
+      provider,
+      providerName: providerInfo?.name ?? provider,
+      lastSuccessAt,
+      transactionCount,
+    };
 
-    if (!latest) {
-      return {
-        provider,
-        providerName,
-        lastSyncAt: null,
-        status: "never",
-        errorMessage: null,
-      };
+    if (!latest || (latest.status !== "failed" && !latest.completed_at)) {
+      return { ...base, lastSyncAt: null, status: "never", errorMessage: null };
     }
 
     if (latest.status === "failed") {
       return {
-        provider,
-        providerName,
+        ...base,
         lastSyncAt: latest.completed_at,
         status: "error",
         errorMessage: latest.error_message,
       };
     }
 
-    if (!latest.completed_at) {
-      return {
-        provider,
-        providerName,
-        lastSyncAt: null,
-        status: "never",
-        errorMessage: null,
-      };
-    }
-
-    const ageMs = now - new Date(latest.completed_at + "Z").getTime();
-    const status: "ok" | "stale" = ageMs > staleThresholdMs ? "stale" : "ok";
+    const completedAt = latest.completed_at as string;
+    const ageMs = now - new Date(completedAt + "Z").getTime();
     return {
-      provider,
-      providerName,
-      lastSyncAt: latest.completed_at,
-      status,
+      ...base,
+      lastSyncAt: completedAt,
+      status: ageMs > staleThresholdMs ? "stale" : "ok",
       errorMessage: null,
     };
   });
@@ -216,7 +256,7 @@ export function getCategorySnapshot(
 
   const categories = db
     .prepare(
-      `SELECT id, parent_id as parentId, name, color
+      `SELECT id, parent_id as parentId, name, color, icon
        FROM categories WHERE workspace_id = ? AND kind = 'expense'`
     )
     .all(workspaceId) as Array<{
@@ -224,6 +264,7 @@ export function getCategorySnapshot(
     parentId: number | null;
     name: string;
     color: string;
+    icon: string | null;
   }>;
 
   const parentIds = new Set<number>();
@@ -233,14 +274,20 @@ export function getCategorySnapshot(
 
   const spendRows = db
     .prepare(
-      `SELECT category_id as categoryId, SUM(ABS(charged_amount)) as amount
+      `SELECT category_id as categoryId, description as merchant,
+              SUM(ABS(charged_amount)) as amount, COUNT(*) as count
        FROM transactions
-       WHERE workspace_id = ? AND date >= ? AND date <= ?
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
          AND status = 'completed' AND kind = 'expense'
-         AND category_id IS NOT NULL AND is_excluded = 0
-       GROUP BY category_id`
+         AND category_id IS NOT NULL AND ${countedSql()}
+       GROUP BY category_id, description`
     )
-    .all(workspaceId, from, to) as Array<{ categoryId: number; amount: number }>;
+    .all(workspaceId, from, to) as Array<{
+    categoryId: number;
+    merchant: string;
+    amount: number;
+    count: number;
+  }>;
 
   const budgetRows = db
     .prepare(
@@ -254,6 +301,8 @@ export function getCategorySnapshot(
 
   // Roll each leaf's spend up to its parent if it has one, else under its own id.
   const rolledSpend = new Map<number, number>();
+  const rolledCount = new Map<number, number>();
+  const rolledMerchants = new Map<number, Map<string, number>>();
   const rolledBudget = new Map<number, number>();
 
   const categoryById = new Map(categories.map((c) => [c.id, c]));
@@ -263,6 +312,10 @@ export function getCategorySnapshot(
     if (!cat) continue;
     const key = cat.parentId ?? cat.id;
     rolledSpend.set(key, (rolledSpend.get(key) ?? 0) + row.amount);
+    rolledCount.set(key, (rolledCount.get(key) ?? 0) + row.count);
+    const merchants = rolledMerchants.get(key) ?? new Map<string, number>();
+    merchants.set(row.merchant, (merchants.get(row.merchant) ?? 0) + row.amount);
+    rolledMerchants.set(key, merchants);
   }
 
   // Roll up budgets the same way. Parent's explicit budget takes precedence
@@ -272,7 +325,7 @@ export function getCategorySnapshot(
     if (explicit == null) continue;
     const key = cat.parentId ?? cat.id;
     if (cat.parentId == null && parentIds.has(cat.id)) {
-      // This is a parent with its own explicit budget — use it directly.
+      // A parent with its own explicit budget uses it directly.
       rolledBudget.set(key, explicit);
     } else {
       // Leaf budget: only add if parent doesn't have its own explicit budget.
@@ -288,13 +341,24 @@ export function getCategorySnapshot(
     const cat = categoryById.get(key);
     if (!cat) continue;
     const budget = rolledBudget.get(key) ?? 0;
+    let topMerchant: string | null = null;
+    let topAmount = 0;
+    for (const [merchant, amount] of rolledMerchants.get(key) ?? []) {
+      if (amount > topAmount) {
+        topMerchant = merchant;
+        topAmount = amount;
+      }
+    }
     items.push({
       categoryId: key,
       name: cat.name,
       color: cat.color,
+      icon: cat.icon,
       spent,
       budget,
       percentSpent: budget > 0 ? (spent / budget) * 100 : 0,
+      count: rolledCount.get(key) ?? 0,
+      topMerchant,
     });
   }
 

@@ -30,7 +30,8 @@ export const CREDIT_CARD_PAYMENT_PATTERNS: readonly RegExp[] = [
   /אמריקן\s*אקספרס/i,
   /דיינרס/i,
   /תשלום\s*אשראי/i,
-  /כרטיס\s*אשראי/i,
+  // Hapoalim writes the plural: "כרטיסי אשראי".
+  /כרטיסי?\s*אשראי/i,
   /חיוב\s*כרטיס/i,
   /חיוב\s*לכרטיס/i,
   /\bISRACARD\b/i,

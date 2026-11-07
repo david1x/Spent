@@ -58,9 +58,10 @@ export default function GeneralSettingsPage() {
             typicalMonthly={summary?.typicalMonthly ?? null}
           />
           <GeneralForm
-            key={settings.monthsToSync + ":" + settings.paydayDay}
+            key={settings.monthsToSync + ":" + settings.paydayDay + ":" + settings.budgetPeriod}
             initialMonths={settings.monthsToSync}
             initialPayday={settings.paydayDay}
+            initialBudgetPeriod={settings.budgetPeriod}
           />
           <AutoSyncCard
             key={`auto:${settings.autoSyncEnabled}:${settings.autoSyncTime}`}
@@ -157,27 +158,32 @@ function MonthlyTargetCard({
 function GeneralForm({
   initialMonths,
   initialPayday,
+  initialBudgetPeriod,
 }: {
   initialMonths: number;
   initialPayday: number;
+  initialBudgetPeriod: "calendar" | "payday";
 }) {
   const t = useTranslations("settings.general");
   const tCommon = useTranslations("common");
   const queryClient = useQueryClient();
   const [months, setMonths] = useState(String(initialMonths));
   const [paydayDay, setPaydayDay] = useState(String(initialPayday));
+  const [budgetPeriod, setBudgetPeriod] = useState(initialBudgetPeriod);
 
   const mutation = useMutation({
     mutationFn: updateSettings,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["settings"] });
-      queryClient.invalidateQueries({ queryKey: ["summary"] });
+      // The period setting moves every range in the app, so refresh it all.
+      queryClient.invalidateQueries();
       toast.success(tCommon("saved"));
     },
   });
 
   const dirty =
-    Number(months) !== initialMonths || Number(paydayDay) !== initialPayday;
+    Number(months) !== initialMonths ||
+    Number(paydayDay) !== initialPayday ||
+    budgetPeriod !== initialBudgetPeriod;
 
   return (
     <SettingCard
@@ -223,6 +229,30 @@ function GeneralForm({
             {t("paydayHint")}
           </p>
         </div>
+        <div className="space-y-2 sm:col-span-2">
+          <div className="text-xs font-medium text-foreground/80">{t("budgetPeriod")}</div>
+          <Select
+            value={budgetPeriod}
+            onValueChange={(v) => {
+              if (v === "calendar" || v === "payday") setBudgetPeriod(v);
+            }}
+          >
+            <SelectTrigger className="sm:max-w-sm">
+              <SelectValue>
+                {(value: string) =>
+                  value === "payday"
+                    ? t("budgetPeriodPayday", { day: paydayDay })
+                    : t("budgetPeriodCalendar")
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="calendar">{t("budgetPeriodCalendar")}</SelectItem>
+              <SelectItem value="payday">{t("budgetPeriodPayday", { day: paydayDay })}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">{t("budgetPeriodHint")}</p>
+        </div>
       </div>
       <div className="mt-5 flex justify-end">
         <Button
@@ -230,6 +260,7 @@ function GeneralForm({
             mutation.mutate({
               monthsToSync: Number(months),
               paydayDay: Number(paydayDay),
+              budgetPeriod,
             })
           }
           disabled={!dirty || mutation.isPending}

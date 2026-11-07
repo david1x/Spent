@@ -8,6 +8,7 @@ import {
   type BankCredentialMeta,
 } from "@/server/db/queries/bank-credentials";
 import { getAppSettings } from "@/server/db/queries/settings";
+import { reconcileCardBills } from "@/server/lib/card-bills";
 import {
   createSyncRun,
   completeSyncRun,
@@ -229,6 +230,14 @@ async function syncOneCredential(
       manualTwoFactor,
       send,
     });
+  } catch (err) {
+    // A thrown error (rather than a returned failure) used to leave the run
+    // stuck as "running" forever. Record it, then let the caller report it.
+    failSyncRun(
+      syncRunId,
+      err instanceof Error ? err.message.replace(/\b\d{5,}\b/g, "[REDACTED]") : "Scraping failed"
+    );
+    throw err;
   } finally {
     cancelOtpRequest(syncRunId, "Scrape completed");
   }
@@ -412,6 +421,14 @@ export async function syncWorkspace(
 
   const totalAdded = results.reduce((s, r) => s + r.added, 0);
   const totalUpdated = results.reduce((s, r) => s + r.updated, 0);
+
+  // Before categorizing, so card bill debits become transfers and the AI
+  // doesn't spend a call labeling them as spending.
+  try {
+    reconcileCardBills(workspaceId);
+  } catch (err) {
+    console.error("[sync] card bill reconciliation failed:", err);
+  }
 
   let categorized = 0;
   let aiWarning: string | null = null;

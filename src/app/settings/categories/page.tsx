@@ -24,16 +24,23 @@ import {
 } from "@/components/ui/select";
 import { SectionShell } from "@/components/settings/section-shell";
 import { CategoryDetailSheet } from "@/components/settings/category-detail-sheet";
-import { getMonthRange } from "@/lib/formatters";
 import {
   createCategory,
   getCategories,
   getSummary,
 } from "@/lib/api";
 import type { Category, CategoryKind, CategoryWithData } from "@/lib/types";
+import { formatNumberWhole } from "@/components/home/home-format";
+import { useAmountsHidden } from "@/components/layout/amounts-toggle";
+import { useBudgetPeriod } from "@/components/layout/use-budget-period";
+
+// Module-level so the hook gets a stable date for this visit.
+const today = new Date();
 
 export default function CategoriesSettingsPage() {
-  const { from, to } = getMonthRange();
+  // Re-render everything below when "Hide amounts" flips; the formatters read it.
+  useAmountsHidden();
+  const { from, to } = useBudgetPeriod(today);
   const { data: categories } = useQuery({
     queryKey: ["categories"],
     queryFn: () => getCategories(),
@@ -279,7 +286,7 @@ function CategoryRow({
         <div className="hidden shrink-0 text-end sm:block">
           {data ? (
             <div className="text-xs tabular-nums text-muted-foreground">
-              ₪{Math.round(data.spent).toLocaleString("en-IL")} spent
+              ₪{formatNumberWhole(data.spent, "en")} spent
             </div>
           ) : null}
         </div>
@@ -313,7 +320,7 @@ function BudgetChip({
   }
   return (
     <span className="shrink-0 rounded-full bg-foreground/8 px-2 py-0.5 text-[11px] font-medium tabular-nums">
-      ₪{Math.round(data.budget).toLocaleString("en-IL")}
+      ₪{formatNumberWhole(data.budget, "en")}
     </span>
   );
 }

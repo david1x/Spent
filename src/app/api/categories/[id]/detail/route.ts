@@ -6,11 +6,13 @@ import {
 } from "@/server/db/queries/transactions";
 import { getAllCategories } from "@/server/db/queries/categories";
 import { getAllBudgets, getAutoBudgetAverage } from "@/server/db/queries/budgets";
-import { toLocalISODate } from "@/server/lib/date-utils";
+import { getPeriodStartDay } from "@/server/db/queries/settings";
+import { periodContaining, periodRange, shiftPeriod } from "@/lib/period";
 import { getWorkspaceIdFromRequest } from "@/server/lib/workspace-context";
 import type { BudgetSource } from "@/lib/types";
+import { withRequestScope } from "@/server/lib/scope";
 
-export async function GET(
+async function handleGET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -22,27 +24,15 @@ export async function GET(
   }
 
   const { searchParams } = new URL(request.url);
-  const now = new Date();
-  const defaultFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const defaultTo = toLocalISODate(
-    new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  );
-  const from = searchParams.get("from") ?? defaultFrom;
-  const to = searchParams.get("to") ?? defaultTo;
+  // Calendar month, or payday to payday; "previous" follows the same rule.
+  const startDay = getPeriodStartDay(workspaceId);
+  const fallback = periodRange(periodContaining(new Date(), startDay));
+  const from = searchParams.get("from") ?? fallback.from;
+  const to = searchParams.get("to") ?? fallback.to;
 
-  const fromDate = new Date(from);
-  const prevMonthStart = new Date(
-    fromDate.getFullYear(),
-    fromDate.getMonth() - 1,
-    1
-  );
-  const prevMonthEnd = new Date(
-    fromDate.getFullYear(),
-    fromDate.getMonth(),
-    0
-  );
-  const prevFrom = toLocalISODate(prevMonthStart);
-  const prevTo = toLocalISODate(prevMonthEnd);
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const period = periodContaining(new Date(fy, (fm ?? 1) - 1, fd ?? 1), startDay);
+  const { from: prevFrom, to: prevTo } = periodRange(shiftPeriod(period, -1, startDay));
 
   const allCategories = getAllCategories(workspaceId);
   const category = allCategories.find((c) => c.id === categoryId);
@@ -233,7 +223,7 @@ export async function GET(
     avgPerTransaction,
     vsLastMonth,
     prevSpent,
-    prevPeriodLabel: prevMonthStart.toLocaleDateString("en-US", {
+    prevPeriodLabel: shiftPeriod(period, -1, startDay).start.toLocaleDateString("en-US", {
       month: "long",
     }),
     dailySpend,
@@ -262,4 +252,10 @@ function aggregateTopMerchants(
     .map(([merchant, v]) => ({ merchant, amount: v.amount, count: v.count }))
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 6);
+}
+
+/** Every total in this route follows the budget scope (bank bundles) the client picked. */
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const [request] = args;
+  return withRequestScope(request, getWorkspaceIdFromRequest(request), () => handleGET(...args));
 }

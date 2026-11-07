@@ -3,6 +3,7 @@ import {
   deleteCategory,
   setCategoryParent,
   updateCategoryBudgetMode,
+  updateCategoryCountsInSpending,
   updateCategoryDescription,
 } from "@/server/db/queries/categories";
 import { getWorkspaceIdFromRequest } from "@/server/lib/workspace-context";
@@ -31,9 +32,28 @@ export async function PATCH(
     budgetMode?: unknown;
     description?: unknown;
     parentId?: unknown;
+    countsInSpending?: unknown;
   };
 
   let applied = false;
+
+  if (typed.countsInSpending !== undefined) {
+    if (typeof typed.countsInSpending !== "boolean") {
+      return NextResponse.json(
+        { error: "countsInSpending must be a boolean" },
+        { status: 400 }
+      );
+    }
+    const ok = updateCategoryCountsInSpending(
+      workspaceId,
+      categoryId,
+      typed.countsInSpending
+    );
+    if (!ok) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+    applied = true;
+  }
 
   if (typed.budgetMode !== undefined) {
     if (typed.budgetMode !== "budgeted" && typed.budgetMode !== "tracking") {

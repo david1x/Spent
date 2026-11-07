@@ -11,17 +11,19 @@ import {
   getNeedsAttentionCounts,
   getRecentTransactionsForHome,
 } from "@/server/db/queries/home";
-import { getWorkspaceSetting } from "@/server/db/queries/settings";
+import { getPeriodStartDay, getWorkspaceSetting } from "@/server/db/queries/settings";
 import { getNextRunAt } from "@/server/sync/scheduler";
 import { getWorkspaceIdFromRequest } from "@/server/lib/workspace-context";
+import { daysUntil, nextPayday, pacePhrase } from "@/server/lib/pace";
 import {
-  daysInMonth,
-  dayWithinMonth,
-  daysUntil,
-  nextPayday,
-  pacePhrase,
-} from "@/server/lib/pace";
-import { toLocalISODate } from "@/server/lib/date-utils";
+  dayOfPeriod,
+  periodContaining,
+  periodLength,
+  periodMonthName,
+  periodRange,
+  shiftPeriod,
+  toISODay,
+} from "@/lib/period";
 import type {
   HomeBankHealthItem,
   HomeCashFlow,
@@ -35,6 +37,7 @@ import type {
   HomeThisMonth,
   HomeTopMerchant,
 } from "@/lib/types";
+import { withRequestScope } from "@/server/lib/scope";
 
 const HISTORICAL_MONTHS = 8;
 const RECENT_TXN_LIMIT = 8;
@@ -57,21 +60,18 @@ function safe<T>(
   }
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const workspaceId = getWorkspaceIdFromRequest(request);
 
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
+  // A calendar month, or payday to payday when the user budgets that way.
+  const startDay = getPeriodStartDay(workspaceId);
+  const period = periodContaining(now, startDay);
+  const { from, to } = periodRange(period);
+  const monthLabel = periodMonthName(period, "en");
 
-  const monthStart = new Date(year, month, 1);
-  const monthEnd = new Date(year, month + 1, 0);
-  const from = toLocalISODate(monthStart);
-  const to = toLocalISODate(monthEnd);
-  const monthLabel = monthStart.toLocaleDateString("en-US", { month: "long" });
-
-  const totalDays = daysInMonth(year, month);
-  const elapsedDays = Math.max(1, dayWithinMonth(now, year, month));
+  const totalDays = periodLength(period);
+  const elapsedDays = Math.max(1, dayOfPeriod(period, now));
   const timeElapsedPercent = Math.min(100, (elapsedDays / totalDays) * 100);
 
   const paydayDay = Number(getWorkspaceSetting(workspaceId, "payday_day") ?? "1");
@@ -86,35 +86,50 @@ export async function GET(request: Request) {
     const parsed = monthlyTargetRaw != null ? Number(monthlyTargetRaw) : NaN;
     const budget = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 
-    // Same window last month: from day 1 to today's day-of-month (clamped).
-    const prevMonthStart = new Date(year, month - 1, 1);
-    const prevElapsedDay = Math.min(
-      elapsedDays,
-      daysInMonth(prevMonthStart.getFullYear(), prevMonthStart.getMonth())
+    // Same window last period: its first day up to today's day number
+    // (clamped), so a partial period is never compared against a full one.
+    const prev = shiftPeriod(period, -1, startDay);
+    const prevElapsedDay = Math.min(elapsedDays, periodLength(prev));
+    const prevSameDaysEnd = new Date(
+      prev.start.getFullYear(),
+      prev.start.getMonth(),
+      prev.start.getDate() + prevElapsedDay - 1
     );
-    const prevMonthMtdEnd = new Date(
-      prevMonthStart.getFullYear(),
-      prevMonthStart.getMonth(),
-      prevElapsedDay
-    );
-    const prevSpent = getPeriodTotal(
-      workspaceId,
-      toLocalISODate(prevMonthStart),
-      toLocalISODate(prevMonthMtdEnd)
-    );
-    const deltaVsLastMonth =
-      prevSpent > 0 ? ((spent - prevSpent) / prevSpent) * 100 : null;
+    const prevFrom = toISODay(prev.start);
+    const prevSpent = getPeriodTotal(workspaceId, prevFrom, toISODay(prevSameDaysEnd));
+    const hasHistory = getPeriodTotal(workspaceId, prevFrom, toISODay(prev.end)) > 0;
+
+    const projected = Math.max(spent, (spent / elapsedDays) * totalDays);
+    const expectedByToday = budget > 0 ? (budget * elapsedDays) / totalDays : 0;
+    let paceStatus: HomeThisMonth["paceStatus"] = null;
+    if (budget > 0) {
+      // Same rule as the Budget page hero (computeVerdict in hero-card.tsx):
+      // warn once spending runs 25+ points ahead of the calendar. A straight
+      // line forecast overreacts early in the month, when rent and other big
+      // bills land first.
+      const delta = (spent / budget) * 100 - timeElapsedPercent;
+      if (spent > budget) paceStatus = "over";
+      else if (delta >= 25) paceStatus = "ahead";
+      else paceStatus = "on";
+    }
 
     const phrase = pacePhrase(spent, spent, budget, timeElapsedPercent, monthLabel);
 
     return {
       spent,
       budget,
-      deltaVsLastMonth,
       pacePhrase: phrase,
       daysUntilPayday,
       timeElapsedPercent,
       monthLabel,
+      periodStart: from,
+      dayOfPeriod: elapsedDays,
+      periodLength: totalDays,
+      expectedByToday,
+      projected,
+      paceStatus,
+      lastPeriodSameDays: hasHistory ? prevSpent : null,
+      lastPeriodStart: prevFrom,
     };
   });
 
@@ -131,7 +146,7 @@ export async function GET(request: Request) {
   const historicalTrend = safe<HomeHistoricalTrendPoint[]>(
     "historicalTrend",
     errors,
-    () => getHistoricalTrend(workspaceId, HISTORICAL_MONTHS)
+    () => getHistoricalTrend(workspaceId, HISTORICAL_MONTHS, startDay)
   );
 
   const recentTransactions = safe<HomeRecentTransaction[]>(
@@ -173,4 +188,10 @@ export async function GET(request: Request) {
   };
 
   return NextResponse.json(payload);
+}
+
+/** Every total in this route follows the budget scope (bank bundles) the client picked. */
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const [request] = args;
+  return withRequestScope(request, getWorkspaceIdFromRequest(request), () => handleGET(...args));
 }

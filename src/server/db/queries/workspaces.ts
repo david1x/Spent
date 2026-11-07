@@ -129,6 +129,10 @@ export function createWorkspace(name: string): Workspace {
     for (const c of SEED_CATEGORIES) {
       insertCat.run(id, c.name, c.color, c.icon, c.kind, c.description);
     }
+    // Mirrors migration 021: transfers move money, they aren't spending.
+    db.prepare(
+      "UPDATE categories SET counts_in_spending = 0 WHERE workspace_id = ? AND name = 'Transfers'"
+    ).run(id);
     return id;
   });
 

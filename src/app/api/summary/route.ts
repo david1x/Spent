@@ -14,55 +14,48 @@ import {
   getAllBudgets,
   getAutoBudgetAverage,
 } from "@/server/db/queries/budgets";
-import { getWorkspaceSetting } from "@/server/db/queries/settings";
+import { getPeriodStartDay, getWorkspaceSetting } from "@/server/db/queries/settings";
 import { getWorkspaceIdFromRequest } from "@/server/lib/workspace-context";
+import { computeStatus, daysUntil, nextPayday, pacePhrase } from "@/server/lib/pace";
 import {
-  computeStatus,
-  daysInMonth,
-  dayWithinMonth,
-  daysUntil,
-  nextPayday,
-  pacePhrase,
-} from "@/server/lib/pace";
-import { toLocalISODate } from "@/server/lib/date-utils";
+  dayOfPeriod,
+  periodContaining,
+  periodLength,
+  periodMonthName,
+  periodRange,
+  shiftPeriod,
+} from "@/lib/period";
 import type { BudgetSource, CategoryWithData } from "@/lib/types";
+import { withRequestScope } from "@/server/lib/scope";
 
 function parseISODate(s: string): Date {
   const [y, m, d] = s.split("-").map(Number);
   return new Date(y, (m ?? 1) - 1, d ?? 1);
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const workspaceId = getWorkspaceIdFromRequest(request);
   const { searchParams } = new URL(request.url);
-  const now = new Date();
-  const defaultFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const defaultTo = toLocalISODate(
-    new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  );
-
-  const from = searchParams.get("from") ?? defaultFrom;
-  const to = searchParams.get("to") ?? defaultTo;
+  const today = new Date();
+  // Calendar month, or payday to payday. The page sends the range it shows;
+  // the default is the period containing today.
+  const startDay = getPeriodStartDay(workspaceId);
+  const fallback = periodRange(periodContaining(today, startDay));
+  const from = searchParams.get("from") ?? fallback.from;
+  const to = searchParams.get("to") ?? fallback.to;
   const months = Number(searchParams.get("months") ?? "12");
 
-  const fromDate = parseISODate(from);
-  const monthLabel = fromDate.toLocaleDateString("en-US", { month: "long" });
-  const year = fromDate.getFullYear();
-  const month = fromDate.getMonth();
-  const totalDays = daysInMonth(year, month);
-  const today = new Date();
-  const elapsedDays = Math.max(1, dayWithinMonth(today, year, month));
+  const period = periodContaining(parseISODate(from), startDay);
+  const monthLabel = periodMonthName(period, "en");
+  const totalDays = periodLength(period);
+  const elapsedDays = Math.max(1, dayOfPeriod(period, today));
   const timeElapsedPercent = Math.min(100, (elapsedDays / totalDays) * 100);
 
   const paydayDay = Number(getWorkspaceSetting(workspaceId, "payday_day") ?? "1");
   const payday = nextPayday(today, paydayDay);
   const daysUntilPayday = Math.max(0, daysUntil(payday));
 
-  // Compute previous month's range
-  const prevMonthStart = new Date(year, month - 1, 1);
-  const prevMonthEnd = new Date(year, month, 0);
-  const prevFrom = toLocalISODate(prevMonthStart);
-  const prevTo = toLocalISODate(prevMonthEnd);
+  const { from: prevFrom, to: prevTo } = periodRange(shiftPeriod(period, -1, startDay));
 
   const categories = getAllCategories(workspaceId, "expense");
   const currentSpend = getCategorySpendInRange(workspaceId, from, to);
@@ -330,4 +323,10 @@ export async function GET(request: Request) {
     pacePhrase: phrase,
     typicalMonthly,
   });
+}
+
+/** Every total in this route follows the budget scope (bank bundles) the client picked. */
+export async function GET(...args: Parameters<typeof handleGET>) {
+  const [request] = args;
+  return withRequestScope(request, getWorkspaceIdFromRequest(request), () => handleGET(...args));
 }

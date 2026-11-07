@@ -4,7 +4,13 @@ import { getDb } from "../index";
 import type { Category, CategoryKind } from "@/lib/types";
 
 const CATEGORY_COLUMNS =
-  "id, parent_id as parentId, name, color, icon, kind, budget_mode as budgetMode, description";
+  "id, parent_id as parentId, name, color, icon, kind, budget_mode as budgetMode, description, counts_in_spending as countsInSpending";
+
+type CategoryRow = Omit<Category, "countsInSpending"> & { countsInSpending: number };
+
+function mapCategory(row: CategoryRow): Category {
+  return { ...row, countsInSpending: row.countsInSpending === 1 };
+}
 
 export function getAllCategories(
   workspaceId: number,
@@ -26,33 +32,44 @@ export function getAllCategories(
   }
 
   const sql = `SELECT ${CATEGORY_COLUMNS} FROM categories WHERE ${whereParts.join(" AND ")} ORDER BY name`;
-  return getDb().prepare(sql).all(...params) as Category[];
+  return (getDb().prepare(sql).all(...params) as CategoryRow[]).map(mapCategory);
 }
 
 export function getCategoryById(
   workspaceId: number,
   id: number
 ): Category | null {
-  return (
-    (getDb()
-      .prepare(
-        `SELECT ${CATEGORY_COLUMNS} FROM categories WHERE workspace_id = ? AND id = ?`
-      )
-      .get(workspaceId, id) as Category | undefined) ?? null
-  );
+  const row = getDb()
+    .prepare(
+      `SELECT ${CATEGORY_COLUMNS} FROM categories WHERE workspace_id = ? AND id = ?`
+    )
+    .get(workspaceId, id) as CategoryRow | undefined;
+  return row ? mapCategory(row) : null;
 }
 
 export function getCategoryByName(
   workspaceId: number,
   name: string
 ): Category | null {
-  return (
-    (getDb()
-      .prepare(
-        `SELECT ${CATEGORY_COLUMNS} FROM categories WHERE workspace_id = ? AND name = ? COLLATE NOCASE`
-      )
-      .get(workspaceId, name) as Category | undefined) ?? null
-  );
+  const row = getDb()
+    .prepare(
+      `SELECT ${CATEGORY_COLUMNS} FROM categories WHERE workspace_id = ? AND name = ? COLLATE NOCASE`
+    )
+    .get(workspaceId, name) as CategoryRow | undefined;
+  return row ? mapCategory(row) : null;
+}
+
+export function updateCategoryCountsInSpending(
+  workspaceId: number,
+  id: number,
+  counts: boolean
+): boolean {
+  const result = getDb()
+    .prepare(
+      "UPDATE categories SET counts_in_spending = ? WHERE workspace_id = ? AND id = ?"
+    )
+    .run(counts ? 1 : 0, workspaceId, id);
+  return result.changes > 0;
 }
 
 /**
@@ -244,6 +261,7 @@ export function createParentCategory(
     kind: input.kind,
     budgetMode: "budgeted",
     description,
+    countsInSpending: true,
   };
 }
 
@@ -346,6 +364,7 @@ export function ensureCategory(
     kind,
     budgetMode: "budgeted",
     description: null,
+    countsInSpending: true,
   };
 }
 
