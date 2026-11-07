@@ -910,5 +910,26 @@
     "workspaces": "סביבות עבודה",
     "newWorkspace": "סביבת עבודה חדשה",
     "manageWorkspaces": "ניהול סביבות עבודה"
+  },
+  "categorizeReview": {
+    "title": "סיווג בעזרת AI",
+    "description": "{count, plural, one {קטגוריה מוצעת לעסקה אחת ללא קטגוריה.} other {קטגוריות מוצעות ל־# עסקאות ללא קטגוריה.}} אשרו או דחו קטגוריות חדשות לפני ההחלה.",
+    "usingExisting": "בקטגוריות קיימות ({count})",
+    "proposedNew": "קטגוריות חדשות מוצעות ({count})",
+    "approveAll": "לאשר הכול",
+    "rejectAll": "לדחות הכול",
+    "noProposals": "ה־AI לא הציע קטגוריות חדשות. הכול מתאים לרשימה הקיימת שלך.",
+    "batchErrors": "{count, plural, one {קבוצה אחת נכשלה} other {# קבוצות נכשלו}} בזמן הסיווג. שאר העסקאות סווגו כרגיל.",
+    "transactionCount": "{count, plural, one {עסקה אחת} other {# עסקאות}}",
+    "approveLabel": "לאשר את \"{name}\"",
+    "willBeCategorized": "{count, plural, one {עסקה אחת תסווג} other {# עסקאות יסווגו}}",
+    "willStay": "{count, plural, one {עסקה אחת תישאר ללא קטגוריה} other {# יישארו ללא קטגוריה}}",
+    "willBeCreated": "{total, plural, one {{approved} מתוך קטגוריה חדשה אחת תיווצר} other {{approved} מתוך # קטגוריות חדשות ייווצרו}}",
+    "cancel": "ביטול",
+    "apply": "החלה",
+    "applying": "מחיל…",
+    "applied": "{count, plural, one {הוחל על עסקה אחת} other {הוחל על # עסקאות}}",
+    "appliedWithNew": "{count, plural, one {הוחל על עסקה אחת} other {הוחל על # עסקאות}} · {created, plural, one {נוספה קטגוריה חדשה} other {נוספו # קטגוריות חדשות}}",
+    "applyFailed": "לא הצלחנו להחיל את הקטגוריות. נסו שוב."
   }
 }

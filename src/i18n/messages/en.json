@@ -910,5 +910,26 @@
     "workspaces": "Workspaces",
     "newWorkspace": "New workspace",
     "manageWorkspaces": "Manage workspaces"
+  },
+  "categorizeReview": {
+    "title": "AI categorization",
+    "description": "{count, plural, one {Suggested category for # uncategorized transaction.} other {Suggested categories for # uncategorized transactions.}} Approve or reject any new categories before applying.",
+    "usingExisting": "Using existing categories ({count})",
+    "proposedNew": "Proposed new categories ({count})",
+    "approveAll": "Approve all",
+    "rejectAll": "Reject all",
+    "noProposals": "The AI didn't propose any new categories. Everything fits in your existing list.",
+    "batchErrors": "{count, plural, one {# batch failed} other {# batches failed}} during AI categorization. Other transactions were still processed.",
+    "transactionCount": "{count, plural, one {# transaction} other {# transactions}}",
+    "approveLabel": "Approve \"{name}\"",
+    "willBeCategorized": "{count, plural, one {# will be categorized} other {# will be categorized}}",
+    "willStay": "{count, plural, one {# will stay uncategorized} other {# will stay uncategorized}}",
+    "willBeCreated": "{total, plural, one {{approved} of # new category will be created} other {{approved} of # new categories will be created}}",
+    "cancel": "Cancel",
+    "apply": "Apply",
+    "applying": "Applying…",
+    "applied": "{count, plural, one {Applied to # transaction} other {Applied to # transactions}}",
+    "appliedWithNew": "{count, plural, one {Applied to # transaction} other {Applied to # transactions}} · {created, plural, one {added # new category} other {added # new categories}}",
+    "applyFailed": "Couldn't apply the categories. Try again."
   }
 }
