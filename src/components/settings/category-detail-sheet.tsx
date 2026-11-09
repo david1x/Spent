@@ -325,18 +325,18 @@ function BudgetSection({
   });
 
   const [amount, setAmount] = useState(
-    data ? String(Math.round(data.budget)) : ""
+    data ? String(Math.round(data.budget * 100) / 100) : ""
   );
 
   useEffect(() => {
-    if (data) setAmount(String(Math.round(data.budget)));
+    if (data) setAmount(String(Math.round(data.budget * 100) / 100));
   }, [data]);
 
   const handleBlur = () => {
     if (!data) return;
     const parsed = Number(amount);
     if (!Number.isFinite(parsed) || parsed < 0) return;
-    if (Math.round(parsed) === Math.round(data.budget)) return;
+    if (Math.abs(parsed - data.budget) < 0.005) return;
     budgetMutation.mutate(parsed);
   };
 
@@ -380,7 +380,9 @@ function BudgetSection({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 onBlur={handleBlur}
+                inputMode="decimal"
                 min={0}
+                step="any"
               />
             </InputGroup>
             {data ? (

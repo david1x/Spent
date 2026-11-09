@@ -61,6 +61,7 @@ import { INCOME_INK } from "@/components/transactions/summary-strip";
 import { PaymentHistorySheet } from "@/components/transactions/payment-history-sheet";
 import {
   TransactionTextDialog,
+  isForeignPurchase,
   type TransactionTextValues,
 } from "@/components/transactions/transaction-text-dialog";
 import { isRenamed, transactionName } from "@/lib/transaction-name";
@@ -1095,7 +1096,7 @@ function AmountText({
           muted ? "font-normal text-muted-foreground" : "font-medium text-foreground"
         )}
         style={!muted && isIncome ? { color: INCOME_INK } : undefined}
-        title={estimated ? t("amountEstimatedHint") : undefined}
+        title={estimated ? t("amountEstimatedHint") : txn.chargedByUser ? t("amountSetByYouHint") : undefined}
       >
         <bdi>
           {estimated ? "≈ " : ""}
@@ -1331,7 +1332,7 @@ function OwnerMoreItems({
     <>
         <DropdownMenuItem onClick={() => actions.editText(txn)}>
           <Pencil className="h-3.5 w-3.5" />
-          {t("renameAction")}
+          {isForeignPurchase(txn) ? t("renameActionForeign") : t("renameAction")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => actions.openHistory(txn)}>
           <History className="h-3.5 w-3.5" />

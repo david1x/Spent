@@ -403,7 +403,19 @@
     "renameApplyAction": "{count, plural, one {Rename it} other {Rename all #}}",
     "renameApplyDone": "{count, plural, one {Renamed one more transaction to {name}} other {Renamed # more transactions to {name}}}",
     "editCategoryBudget": "Edit {category} budget",
-    "suggestCategoryLabel": "Suggest a category"
+    "suggestCategoryLabel": "Suggest a category",
+    "renameActionForeign": "Rename, add a note or fix the amount",
+    "editTitleForeign": "Edit this transaction",
+    "amountLabel": "Amount in shekels",
+    "amountHint": "Paid {original}, so {rate} shekels per {currency}. Set it to what your card bill shows.",
+    "amountWasEstimate": "Right now this is an estimate at the Bank of Israel rate.",
+    "amountIsYours": "You set this amount, so syncs keep it.",
+    "amountUseAuto": "Use the automatic amount",
+    "amountKeepMine": "Keep my amount",
+    "amountAutoPending": "Goes back to the bank's amount, or the exchange-rate estimate until the bank has one, when you save.",
+    "amountInvalid": "Enter an amount above zero.",
+    "amountSetByYouHint": "You set this shekel amount.",
+    "editDescriptionForeign": "Give it a name you'll recognize, a note, and the exact shekel amount from your card bill. The bank's own text stays on record."
   },
   "dashboard": {
     "syncing": "Syncing…",

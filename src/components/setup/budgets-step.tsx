@@ -228,9 +228,9 @@ function CategoryCell({
         <span className="text-[10px] text-muted-foreground">₪</span>
         <input
           type="number"
-          inputMode="numeric"
+          inputMode="decimal"
           min={0}
-          step={1}
+          step="any"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="—"

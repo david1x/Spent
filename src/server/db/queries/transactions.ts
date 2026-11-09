@@ -9,6 +9,7 @@ import { getCardRouteMap } from "../../lib/card-routes";
 import { isSameSeries, mayHaveSeries } from "../../lib/description-series";
 import { normalizeCurrency } from "@/lib/currency";
 import { estimateIlsCharge, needsIlsEstimate } from "../../lib/fx-estimate";
+import { refreshEstimatedCharges } from "../../lib/fx-rates";
 import type {
   TransactionWithCategory,
   MonthlySummary,
@@ -116,12 +117,23 @@ export function insertTransactions(
     )
     ON CONFLICT(workspace_id, dedup_hash, dedup_sequence) DO UPDATE SET
       status = CASE WHEN transactions.status = 'pending' THEN excluded.status ELSE transactions.status END,
-      -- A real shekel amount replaces an estimate (migration 025).
-      charged_amount = CASE WHEN transactions.status = 'pending'
+      -- A real shekel amount replaces an estimate (migration 025). An amount
+      -- the user typed in stays; what the bank says goes to charged_auto, for
+      -- "use the automatic amount" (migration 033).
+      charged_amount = CASE WHEN transactions.charged_by_user = 1 THEN transactions.charged_amount
+                            WHEN transactions.status = 'pending'
                               OR (transactions.charged_estimated = 1 AND excluded.charged_estimated = 0)
                             THEN excluded.charged_amount ELSE transactions.charged_amount END,
-      charged_estimated = CASE WHEN transactions.status = 'pending' OR transactions.charged_estimated = 1
+      charged_estimated = CASE WHEN transactions.charged_by_user = 1 THEN 0
+                               WHEN transactions.status = 'pending' OR transactions.charged_estimated = 1
                                THEN excluded.charged_estimated ELSE transactions.charged_estimated END,
+      charged_auto = CASE WHEN transactions.charged_by_user = 1
+                           AND (transactions.status = 'pending'
+                                OR (transactions.charged_auto_estimated = 1 AND excluded.charged_estimated = 0))
+                          THEN excluded.charged_amount ELSE transactions.charged_auto END,
+      charged_auto_estimated = CASE WHEN transactions.charged_by_user = 1
+                                     AND (transactions.status = 'pending' OR transactions.charged_auto_estimated = 1)
+                                    THEN excluded.charged_estimated ELSE transactions.charged_auto_estimated END,
       processed_date = CASE WHEN transactions.status = 'pending' THEN excluded.processed_date ELSE transactions.processed_date END,
       kind = transactions.kind,
       updated_at = CASE WHEN transactions.status = 'pending' THEN datetime('now') ELSE transactions.updated_at END
@@ -756,6 +768,7 @@ interface TransactionRow {
   needs_review: number;
   is_excluded: number;
   charged_estimated?: number | null;
+  charged_by_user?: number | null;
   created_at: string;
   updated_at: string;
   category_name?: string | null;
@@ -808,6 +821,7 @@ function mapTransactionRow(row: unknown): TransactionWithCategory {
     needsReview: r.needs_review === 1,
     isExcluded: r.is_excluded === 1,
     chargedEstimated: r.charged_estimated === 1,
+    chargedByUser: r.charged_by_user === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     categoryName: r.category_name ?? null,
@@ -1007,6 +1021,66 @@ export const DISPLAY_NAME_MAX = 120;
 export const NOTE_MAX = 1000;
 
 /** Sets the user's name and/or note on rows. Fields left undefined are kept. */
+export class ChargedAmountError extends Error {}
+
+/**
+ * The user's own shekel amount for a foreign purchase (a positive number;
+ * the sign follows the transaction), or null to go back to the automatic one.
+ * Returns false when there's no such transaction.
+ */
+export function setChargedAmount(workspaceId: number, id: number, amount: number | null): boolean {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT original_currency, original_amount, charged_amount, charged_estimated, charged_by_user,
+              charged_auto, charged_auto_estimated
+       FROM transactions WHERE workspace_id = ? AND id = ?`
+    )
+    .get(workspaceId, id) as
+    | {
+        original_currency: string;
+        original_amount: number;
+        charged_amount: number;
+        charged_estimated: number;
+        charged_by_user: number;
+        charged_auto: number | null;
+        charged_auto_estimated: number | null;
+      }
+    | undefined;
+  if (!row) return false;
+
+  if (amount === null) {
+    if (row.charged_by_user !== 1) return true;
+    db.prepare(
+      `UPDATE transactions
+       SET charged_amount = ?, charged_estimated = ?, charged_by_user = 0,
+           charged_auto = NULL, charged_auto_estimated = NULL, updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(row.charged_auto ?? row.charged_amount, row.charged_auto_estimated ?? 0, id);
+    // An estimate gets today's rate again.
+    if ((row.charged_auto_estimated ?? 0) === 1) refreshEstimatedCharges(db);
+    return true;
+  }
+
+  if (normalizeCurrency(row.original_currency) === "ILS") {
+    throw new ChargedAmountError("Only purchases in another currency can have their shekel amount set.");
+  }
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
+    throw new ChargedAmountError("Enter an amount above zero.");
+  }
+  const sign = (row.charged_amount || row.original_amount) > 0 ? 1 : -1;
+  const value = sign * (Math.round(amount * 100) / 100);
+  db.prepare(
+    `UPDATE transactions
+     SET charged_amount = ?, charged_estimated = 0, charged_by_user = 1,
+         charged_auto = CASE WHEN charged_by_user = 1 THEN charged_auto ELSE charged_amount END,
+         charged_auto_estimated = CASE WHEN charged_by_user = 1 THEN charged_auto_estimated ELSE charged_estimated END,
+         updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(value, id);
+  return true;
+}
+
 export function setTransactionText(
   workspaceId: number,
   ids: number[],

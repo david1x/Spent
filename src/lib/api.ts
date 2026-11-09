@@ -530,7 +530,7 @@ export function updateLoginCard(
 
 export function updateTransactionText(
   id: number,
-  fields: { displayName?: string | null; note?: string | null },
+  fields: { displayName?: string | null; note?: string | null; chargedAmount?: number | null },
   applyNameToMerchant = false
 ) {
   return fetchJSON<{ success: boolean; applied: number; sameMerchantCount: number }>(`/api/transactions/${id}`, {

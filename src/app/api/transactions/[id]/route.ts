@@ -4,6 +4,8 @@ import {
   setTransactionNeedsReview,
   getTransactionContext,
   setTransactionText,
+  setChargedAmount,
+  ChargedAmountError,
 } from "@/server/db/queries/transactions";
 import { recordMerchantCategory, sameMerchantTransactionIds } from "@/server/lib/merchant-memory";
 import { applyCategoryChange } from "@/server/lib/category-change";
@@ -46,9 +48,30 @@ export async function PATCH(
     displayName?: unknown;
     note?: unknown;
     applyNameToMerchant?: unknown;
+    chargedAmount?: unknown;
   };
 
   const numericId = Number(id);
+
+  // A foreign purchase's shekel amount, typed in by the user (null: automatic).
+  // Comes with the name and note from the same dialog, so it doesn't return.
+  if ("chargedAmount" in body) {
+    const amount = body.chargedAmount;
+    if (amount !== null && typeof amount !== "number") {
+      return NextResponse.json({ error: "chargedAmount must be a number or null" }, { status: 400 });
+    }
+    try {
+      if (!setChargedAmount(workspaceId, numericId, amount)) {
+        return NextResponse.json({ error: "not found" }, { status: 404 });
+      }
+    } catch (err) {
+      if (err instanceof ChargedAmountError) return NextResponse.json({ error: err.message }, { status: 400 });
+      throw err;
+    }
+    if (!("displayName" in body) && !("note" in body)) {
+      return NextResponse.json({ success: true, applied: 0, sameMerchantCount: 0 });
+    }
+  }
 
   // The user's name and note for the row. A name can then be given to the
   // merchant's other rows too, the way a category can.

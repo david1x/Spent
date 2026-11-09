@@ -65,6 +65,8 @@ export interface TransactionWithCategory extends Transaction {
    * its own currency and converts it only when charged.
    */
   chargedEstimated?: boolean;
+  /** The user typed in the shekel amount (a foreign purchase); syncs keep it. */
+  chargedByUser?: boolean;
   /** The user's own name for the row, shown instead of the bank's description. */
   displayName?: string | null;
   /** The user's note on the row. */

@@ -403,7 +403,19 @@
     "renameApplyAction": "{count, plural, one {שינוי השם שלה} other {שינוי השם של כל ה־#}}",
     "renameApplyDone": "{count, plural, one {עוד תנועה אחת נקראת עכשיו {name}} other {עוד # תנועות נקראות עכשיו {name}}}",
     "editCategoryBudget": "עריכת התקציב של {category}",
-    "suggestCategoryLabel": "הצעת קטגוריה"
+    "suggestCategoryLabel": "הצעת קטגוריה",
+    "renameActionForeign": "שינוי שם, הערה או תיקון הסכום",
+    "editTitleForeign": "עריכת העסקה",
+    "amountLabel": "הסכום בשקלים",
+    "amountHint": "שולם {original}, כלומר {rate} שקלים ל־{currency}. עדכנו לסכום שמופיע בחיוב הכרטיס.",
+    "amountWasEstimate": "כרגע זו הערכה לפי השער של בנק ישראל.",
+    "amountIsYours": "הסכום הזה נקבע על ידיכם, והסנכרון לא ישנה אותו.",
+    "amountUseAuto": "חזרה לסכום האוטומטי",
+    "amountKeepMine": "להשאיר את הסכום שלי",
+    "amountAutoPending": "בשמירה יחזור הסכום של הבנק, או ההערכה לפי שער החליפין עד שהבנק יעדכן.",
+    "amountInvalid": "הזינו סכום גדול מאפס.",
+    "amountSetByYouHint": "את הסכום בשקלים קבעתם בעצמכם.",
+    "editDescriptionForeign": "תנו לה שם שתזהו, הערה, ואת הסכום המדויק בשקלים מחיוב הכרטיס. הטקסט של הבנק נשמר."
   },
   "dashboard": {
     "syncing": "מסנכרן…",

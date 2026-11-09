@@ -121,9 +121,9 @@ function MonthlyTargetCard({
             <Input
               id="monthly-target"
               type="number"
-              inputMode="numeric"
+              inputMode="decimal"
               min={0}
-              step={1}
+              step="any"
               placeholder={t("monthlyTargetPlaceholder")}
               className="text-end tabular-nums"
               value={value}

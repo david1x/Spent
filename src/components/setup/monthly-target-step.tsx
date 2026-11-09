@@ -63,9 +63,9 @@ export function MonthlyTargetStep({ onComplete, onBack }: MonthlyTargetStepProps
           <Input
             id="monthly-target"
             type="number"
-            inputMode="numeric"
+            inputMode="decimal"
             min={0}
-            step={1}
+            step="any"
             placeholder="e.g. 10000"
             className="text-end tabular-nums"
             value={value}

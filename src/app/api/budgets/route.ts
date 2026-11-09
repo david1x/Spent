@@ -30,13 +30,14 @@ export async function PUT(request: Request) {
     return NextResponse.json({ success: true });
   }
 
-  if (body.amount < 0) {
+  if (typeof body.amount !== "number" || !Number.isFinite(body.amount) || body.amount < 0) {
     return NextResponse.json(
-      { error: "amount must be non-negative" },
+      { error: "amount must be a non-negative number" },
       { status: 400 }
     );
   }
 
-  setBudget(workspaceId, body.categoryId, body.amount, false);
+  // Exact to the agora, without float noise like 1234.5600000001.
+  setBudget(workspaceId, body.categoryId, Math.round(body.amount * 100) / 100, false);
   return NextResponse.json({ success: true });
 }

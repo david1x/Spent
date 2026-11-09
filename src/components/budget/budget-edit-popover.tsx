@@ -110,7 +110,7 @@ function BudgetForm({
 }) {
   const queryClient = useQueryClient();
   const has = amount != null && amount > 0;
-  const [draft, setDraft] = useState(has ? String(Math.round(amount)) : "");
+  const [draft, setDraft] = useState(has ? String(Math.round(amount * 100) / 100) : "");
   const [saving, setSaving] = useState(false);
   const parsed = draft.trim() === "" ? null : Number(draft);
   const invalid = parsed != null && (!Number.isFinite(parsed) || parsed < 0);
@@ -159,9 +159,9 @@ function BudgetForm({
         <span className="text-sm text-muted-foreground">₪</span>
         <input
           type="number"
-          inputMode="numeric"
+          inputMode="decimal"
           min={0}
-          step={50}
+          step="any"
           autoFocus
           value={draft}
           placeholder="No budget"

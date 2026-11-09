@@ -628,7 +628,7 @@ function BudgetStat({
   }, [editing]);
 
   const startEdit = () => {
-    setDraft(amount > 0 ? Math.round(amount).toString() : "");
+    setDraft(amount > 0 ? String(Math.round(amount * 100) / 100) : "");
     setEditing(true);
   };
 
@@ -673,9 +673,9 @@ function BudgetStat({
         <input
           ref={inputRef}
           type="number"
-          inputMode="numeric"
+          inputMode="decimal"
           min={0}
-          step={1}
+          step="any"
           value={draft}
           disabled={saving}
           onChange={(e) => setDraft(e.target.value)}
