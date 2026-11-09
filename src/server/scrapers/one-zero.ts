@@ -43,6 +43,49 @@ export interface OneZeroFirstSyncResult extends ScrapeResult {
   otpLongTermToken?: string;
 }
 
+export interface OneZeroTokenSyncResult extends ScrapeResult {
+  /**
+   * One Zero refused the saved token. It only lives for about 45 minutes
+   * (israeli-bank-scrapers #1158), so the caller should ask for a new SMS code.
+   */
+  tokenRejected?: boolean;
+}
+
+/**
+ * The library insists on "+972...". People type "050-123-4567", so accept the
+ * usual Israeli spellings and convert them.
+ */
+export function normalizeOneZeroPhone(raw: string): string {
+  const s = raw.trim().replace(/[\s\-().]/g, "");
+  if (s.startsWith("+")) return s;
+  if (s.startsWith("00")) return `+${s.slice(2)}`;
+  if (s.startsWith("972")) return `+${s}`;
+  if (s.startsWith("0")) return `+972${s.slice(1)}`;
+  return s;
+}
+
+const BLOCKED_MESSAGE =
+  "One Zero's firewall (Cloudflare) refused the connection from this network before login started. " +
+  "Your details were not checked. This is a known problem with the scraper library " +
+  "(israeli-bank-scrapers issue #1144); try again later or from a different network.";
+
+/** The library parses every reply as JSON, so a Cloudflare block page surfaces as a parse error. */
+function isBlockedError(message: string): boolean {
+  return /Unexpected token '<'|<!DOCTYPE|is not valid JSON/i.test(message);
+}
+
+/**
+ * When /getIdToken rejects the login it returns no `resultData`, and the
+ * library's destructuring throws on the missing idToken / accessToken.
+ */
+function isLoginRejectedError(message: string): boolean {
+  return /idToken|accessToken|resultData|\b401\b|unauthori[sz]ed/i.test(message);
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err ?? "");
+}
+
 const SCRAPER_TIMEOUT_MS = 60000;
 
 function buildScraper(startDate: Date) {
@@ -84,9 +127,36 @@ function mapAccounts(
 export async function scrapeOneZeroFirstTime(
   opts: OneZeroFirstSyncOptions
 ): Promise<OneZeroFirstSyncResult> {
+  try {
+    return await firstTime(opts);
+  } catch (err) {
+    const message = messageOf(err);
+    return {
+      success: false,
+      accounts: [],
+      errorMessage: isBlockedError(message)
+        ? BLOCKED_MESSAGE
+        : `One Zero sync failed: ${message}`,
+    };
+  }
+}
+
+async function firstTime(
+  opts: OneZeroFirstSyncOptions
+): Promise<OneZeroFirstSyncResult> {
   const scraper = buildScraper(opts.startDate);
 
-  const trigger = await scraper.triggerTwoFactorAuth(opts.phoneNumber);
+  const phoneNumber = normalizeOneZeroPhone(opts.phoneNumber);
+  if (!/^\+\d{9,15}$/.test(phoneNumber)) {
+    return {
+      success: false,
+      accounts: [],
+      errorMessage:
+        "The phone number for One Zero doesn't look right. Use the number on your One Zero account, like 050-123-4567 or +972501234567.",
+    };
+  }
+
+  const trigger = await scraper.triggerTwoFactorAuth(phoneNumber);
   if (!trigger.success) {
     return {
       success: false,
@@ -129,10 +199,23 @@ export async function scrapeOneZeroFirstTime(
   });
 
   if (!scrapeResult.success) {
+    const message = scrapeResult.errorMessage ?? "";
+    // A token minted seconds ago can't be stale, so a rejected login here
+    // means the email or password is wrong. Don't keep that token around.
+    if (isLoginRejectedError(message)) {
+      return {
+        success: false,
+        accounts: [],
+        errorMessage:
+          "One Zero accepted the SMS code but not the email and password. Check them in Settings and sync again.",
+      };
+    }
     return {
       success: false,
       accounts: [],
-      errorMessage: scrapeResult.errorMessage ?? "Scrape failed after login.",
+      errorMessage: isBlockedError(message)
+        ? BLOCKED_MESSAGE
+        : message || "Scrape failed after login.",
       otpLongTermToken: longTermToken,
     };
   }
@@ -146,19 +229,37 @@ export async function scrapeOneZeroFirstTime(
 
 export async function scrapeOneZeroWithToken(
   opts: OneZeroSubsequentSyncOptions
-): Promise<ScrapeResult> {
+): Promise<OneZeroTokenSyncResult> {
   const scraper = buildScraper(opts.startDate);
-  const scrapeResult = await scraper.scrape({
-    email: opts.email,
-    password: opts.password,
-    otpLongTermToken: opts.otpLongTermToken,
-  });
+  let scrapeResult: Awaited<ReturnType<typeof scraper.scrape>>;
+  try {
+    scrapeResult = await scraper.scrape({
+      email: opts.email,
+      password: opts.password,
+      otpLongTermToken: opts.otpLongTermToken,
+    });
+  } catch (err) {
+    scrapeResult = { success: false, errorMessage: messageOf(err) };
+  }
 
   if (!scrapeResult.success) {
+    const message = scrapeResult.errorMessage ?? "";
+    if (isBlockedError(message)) {
+      return { success: false, accounts: [], errorMessage: BLOCKED_MESSAGE };
+    }
+    if (isLoginRejectedError(message)) {
+      return {
+        success: false,
+        accounts: [],
+        tokenRejected: true,
+        errorMessage:
+          "One Zero needs a new SMS code. Sync again and enter the code sent to your phone.",
+      };
+    }
     return {
       success: false,
       accounts: [],
-      errorMessage: scrapeResult.errorMessage ?? "Scrape failed.",
+      errorMessage: message || "Scrape failed.",
     };
   }
 

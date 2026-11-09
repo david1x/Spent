@@ -109,7 +109,7 @@ export function getRecentTransactionsForHome(
 ): HomeRecentTransaction[] {
   const rows = getDb()
     .prepare(
-      `SELECT t.id, t.date, t.description, t.charged_amount as chargedAmount,
+      `SELECT t.id, t.date, t.description, t.display_name as displayName, t.charged_amount as chargedAmount,
               t.charged_currency as chargedCurrency, t.kind,
               c.name as categoryName, c.color as categoryColor, c.icon as categoryIcon,
               t.provider, t.account_number as accountNumber,
@@ -125,6 +125,7 @@ export function getRecentTransactionsForHome(
     id: number;
     date: string;
     description: string;
+    displayName: string | null;
     chargedAmount: number;
     chargedCurrency: string | null;
     kind: "expense" | "income" | "transfer";
@@ -197,6 +198,12 @@ export function getBankHealth(workspaceId: number): HomeBankHealthItem[] {
      WHERE workspace_id = ? AND provider = ?
      ORDER BY started_at DESC LIMIT 1`
   );
+  // A paused bank's old failures say nothing about it now; only imports count.
+  const latestGoodRunStmt = db.prepare(
+    `SELECT status, completed_at, error_message FROM sync_runs
+     WHERE workspace_id = ? AND provider = ? AND status != 'failed'
+     ORDER BY started_at DESC LIMIT 1`
+  );
   const lastSuccessStmt = db.prepare(
     `SELECT MAX(completed_at) as at FROM sync_runs
      WHERE workspace_id = ? AND provider = ? AND status != 'failed'
@@ -210,7 +217,8 @@ export function getBankHealth(workspaceId: number): HomeBankHealthItem[] {
   const now = Date.now();
 
   return creds.map(({ provider }): HomeBankHealthItem => {
-    const latest = latestRunStmt.get(workspaceId, provider) as
+    const paused = Boolean(BANK_PROVIDERS.find((p) => p.id === provider)?.syncPaused);
+    const latest = (paused ? latestGoodRunStmt : latestRunStmt).get(workspaceId, provider) as
       | { status: string; completed_at: string | null; error_message: string | null }
       | undefined;
     const lastSuccessAt =

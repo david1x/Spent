@@ -6,8 +6,12 @@ import {
   type LoginOptions,
 } from "israeli-bank-scrapers/lib/scrapers/base-scraper-with-browser";
 import type { ScraperScrapingResult } from "israeli-bank-scrapers/lib/scrapers/interface";
-import { interceptionPriorities } from "israeli-bank-scrapers/lib/helpers/browser";
+import {
+  interceptionPriorities,
+  maskHeadlessUserAgent,
+} from "israeli-bank-scrapers/lib/helpers/browser";
 import { fetchDigitalV3Accounts, type IsracardAccount } from "./isracard-digital-v3";
+import type { CardScope } from "./types";
 import type { Page } from "puppeteer";
 
 /**
@@ -70,6 +74,9 @@ async function visibleFieldError(page: Page): Promise<boolean> {
 }
 
 export class SpentIsracardScraper extends IsracardScraper {
+  /** Which cards to read; set by the caller before scrape(). */
+  cardScope: CardScope = {};
+
   override getLoginOptions(rawCredentials: unknown): LoginOptions {
     const credentials = rawCredentials as IsracardCredentials;
     const page = this.page;
@@ -147,6 +154,9 @@ export class SpentIsracardScraper extends IsracardScraper {
       creds: IsracardCredentials
     ) => Promise<ScraperScrapingResult>;
     await this.skipGlassboxDetector();
+    // The library's own Isracard login does this too. Without it a hidden
+    // browser announces itself as HeadlessChrome and the login page answers 403.
+    await maskHeadlessUserAgent(this.page);
     const result = await formLogin.call(this, credentials);
     console.log(
       `[scraper] isracard: form login ${result.success ? "succeeded" : `failed (${result.errorType ?? "unknown"})`}`
@@ -202,6 +212,7 @@ export class SpentIsracardScraper extends IsracardScraper {
       companyCode: COMPANY_CODE,
       startDate: this.options.startDate,
       futureMonths: this.options.futureMonthsToScrape,
+      scope: this.cardScope,
     });
     return { success: true, accounts };
   }

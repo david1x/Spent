@@ -44,6 +44,10 @@ export interface TransactionWithCategory extends Transaction {
    * its own currency and converts it only when charged.
    */
   chargedEstimated?: boolean;
+  /** The user's own name for the row, shown instead of the bank's description. */
+  displayName?: string | null;
+  /** The user's note on the row. */
+  note?: string | null;
   /**
    * True when the row counts toward spending/income totals: not a card bill or
    * own-account transfer, not excluded, and its category counts in spending.
@@ -191,6 +195,59 @@ export interface CategoryWithData {
   vsTypical: { typical: number; percentDiff: number } | null;
 }
 
+/** Spend in one top-level category (parent rollup or standalone leaf), now vs before. */
+export interface CategoryChange {
+  categoryId: number;
+  name: string;
+  color: string;
+  current: number;
+  previous: number;
+}
+
+export interface CategoryChanges {
+  /**
+   * True while the viewed period is still running: `previous` then covers
+   * only the same number of days at the start of last period.
+   */
+  sameDays: boolean;
+  /** The compared window, YYYY-MM-DD. */
+  previousFrom: string;
+  previousTo: string;
+  rows: CategoryChange[];
+}
+
+/** One budget period (a month, or payday to payday) in the multi-month view. */
+export interface TrendPeriod {
+  from: string;
+  to: string;
+  /** Counted spending, the same total the month view's hero shows. */
+  spent: number;
+  income: number;
+  /** The period containing today: its totals are still growing. */
+  inProgress: boolean;
+  /** Spending per top-level category id (a parent's children rolled into it). */
+  byCategory: Record<string, number>;
+  /** Spending with no category yet. */
+  uncategorized: number;
+}
+
+export interface TrendCategory {
+  categoryId: number;
+  name: string;
+  color: string;
+  total: number;
+  /** The category's monthly budget, 0 when it has none or only tracks. */
+  monthlyBudget: number;
+}
+
+export interface SpendingTrend {
+  periods: TrendPeriod[];
+  /** Every top-level category with spending in the range, largest first. */
+  categories: TrendCategory[];
+  /** The workspace's monthly target, 0 when unset. */
+  monthlyTarget: number;
+}
+
 export interface DashboardSummary {
   periodTotal: number;
   transactionCount: number;
@@ -198,6 +255,7 @@ export interface DashboardSummary {
   topMerchants: MerchantSummary[];
   categoryBreakdown: CategoryBreakdown[];
   categoriesWithData: CategoryWithData[];
+  changes: CategoryChanges;
   totalBudget: number;
   budgetedSpent: number;
   overallPercentSpent: number;
@@ -289,6 +347,8 @@ export interface HomeRecentTransaction {
   id: number;
   date: string;
   description: string;
+  /** The user's own name for it, when they gave one. */
+  displayName?: string | null;
   chargedAmount: number;
   chargedCurrency: string | null;
   kind: "expense" | "income" | "transfer";
@@ -402,6 +462,21 @@ export interface CardAccount {
   elsewhere: { workspaceId: number; workspaceName: string } | null;
 }
 
+/** One card under a card login, for choosing which cards sync and where they go. */
+export interface LoginCard {
+  accountNumber: string;
+  /** The card company's name for it, when its list gives one. */
+  label: string | null;
+  active: boolean;
+  syncEnabled: boolean;
+  /** Seen in the card company's list (a card check or sync), not just in old transactions. */
+  listed: boolean;
+  transactionCount: number;
+  /** Where its transactions go: its route, else the login's workspace. */
+  workspaceId: number;
+  workspaceName: string;
+}
+
 /** A card from another workspace's login that was moved into this one. */
 export interface RoutedInCard {
   credentialId: number;
@@ -483,6 +558,33 @@ export interface BankProviderInfo {
    * on those banks falls back to the manual (showBrowser) path.
    */
   supportsProgrammaticTwoFactor?: boolean;
+  /**
+   * Set when the bank blocks automated sign-in and no scraper fix exists yet.
+   * Sync skips these connections; transactions come in through file imports.
+   * Remove the flag to turn sync back on.
+   */
+  syncPaused?: { issueUrl: string };
+  /**
+   * The card company lists the login's cards, so Spent can check for cards
+   * quickly (no transactions) and sync chosen cards only.
+   */
+  listsCards?: boolean;
+}
+
+/** One row of an imported bank export, after the client mapped its columns. */
+export interface ImportRow {
+  /** Local calendar day, YYYY-MM-DD. */
+  date: string;
+  description: string;
+  /** Signed, in shekels: negative for money out, positive for money in. */
+  amount: number;
+  memo?: string;
+}
+
+export interface ImportResult {
+  added: number;
+  updated: number;
+  skipped: number;
 }
 
 export interface OllamaModelInfo {
@@ -521,6 +623,7 @@ export const BANK_PROVIDERS: BankProviderInfo[] = [
     id: "isracard",
     name: "Isracard",
     kind: "card",
+    listsCards: true,
     color: "#E50019",
     blurb: "Israeli Mastercard / Visa",
     domain: "isracard.co.il",
@@ -831,7 +934,7 @@ export const BANK_PROVIDERS: BankProviderInfo[] = [
     name: "One Zero",
     kind: "bank",
     color: "#000000",
-    blurb: "Programmatic 2FA via SMS code",
+    blurb: "Sync paused. Import exported files",
     domain: "onezerobank.com",
     credentialFields: [
       {
@@ -851,12 +954,17 @@ export const BANK_PROVIDERS: BankProviderInfo[] = [
         key: "phoneNumber",
         label: "Phone number",
         type: "tel",
-        placeholder: "+972501234567",
-        hint: "Where the SMS one-time code will be sent. International format including the country code.",
+        placeholder: "050-123-4567",
+        hint: "The number on your One Zero account. The SMS sign-in code is sent here.",
       },
     ],
     enabled: true,
     supportsProgrammaticTwoFactor: true,
+    // One Zero's Cloudflare firewall rejects every non-app client, from any
+    // network, before sign-in starts (israeli-bank-scrapers #1144).
+    syncPaused: {
+      issueUrl: "https://github.com/eshaham/israeli-bank-scrapers/issues/1144",
+    },
   },
 ];
 

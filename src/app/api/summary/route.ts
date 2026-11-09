@@ -24,8 +24,14 @@ import {
   periodMonthName,
   periodRange,
   shiftPeriod,
+  toISODay,
 } from "@/lib/period";
-import type { BudgetSource, CategoryWithData } from "@/lib/types";
+import type {
+  BudgetSource,
+  CategoryChange,
+  CategoryChanges,
+  CategoryWithData,
+} from "@/lib/types";
 import { withRequestScope } from "@/server/lib/scope";
 
 function parseISODate(s: string): Date {
@@ -263,6 +269,52 @@ async function handleGET(request: Request) {
 
   const categoriesWithData: CategoryWithData[] = [...parentRows, ...leafRows];
 
+  // Category change vs last period. While the viewed period is still running,
+  // compare against the same number of days at the start of last period so a
+  // half-finished month never reads as a big drop.
+  const viewedDays = dayOfPeriod(period, today);
+  const inProgress = viewedDays > 0 && viewedDays < totalDays;
+  const prevPeriod = shiftPeriod(period, -1, startDay);
+  const compareEnd = inProgress
+    ? new Date(
+        prevPeriod.start.getFullYear(),
+        prevPeriod.start.getMonth(),
+        prevPeriod.start.getDate() + viewedDays - 1
+      )
+    : prevPeriod.end;
+  const compareTo = toISODay(compareEnd > prevPeriod.end ? prevPeriod.end : compareEnd);
+  const comparedSpend = inProgress
+    ? getCategorySpendInRange(workspaceId, prevFrom, compareTo)
+    : prevSpend;
+  const topLevelOf = new Map<number, (typeof categories)[number]>();
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  for (const c of categories) {
+    const parent = c.parentId != null ? byId.get(c.parentId) : undefined;
+    topLevelOf.set(c.id, parent && parentIdSet.has(parent.id) ? parent : c);
+  }
+  const changeRows = new Map<number, CategoryChange>();
+  const addChange = (categoryId: number, field: "current" | "previous", amount: number) => {
+    const top = topLevelOf.get(categoryId);
+    if (!top) return;
+    const row = changeRows.get(top.id) ?? {
+      categoryId: top.id,
+      name: top.name,
+      color: top.color,
+      current: 0,
+      previous: 0,
+    };
+    row[field] += amount;
+    changeRows.set(top.id, row);
+  };
+  for (const s of currentSpend) addChange(s.categoryId, "current", s.amount);
+  for (const s of comparedSpend) addChange(s.categoryId, "previous", s.amount);
+  const changes: CategoryChanges = {
+    sameDays: inProgress,
+    previousFrom: prevFrom,
+    previousTo: compareTo,
+    rows: [...changeRows.values()].filter((r) => r.current > 0 || r.previous > 0),
+  };
+
   const periodTotal = getPeriodTotal(workspaceId, from, to);
   const transactionCount = getPeriodCount(workspaceId, from, to);
 
@@ -312,6 +364,7 @@ async function handleGET(request: Request) {
     categoryBreakdown: getCategoryBreakdown(workspaceId, from, to),
     // New fields for the budgets dashboard:
     categoriesWithData,
+    changes,
     totalBudget,
     budgetedSpent,
     overallPercentSpent,

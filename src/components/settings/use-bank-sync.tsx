@@ -25,7 +25,7 @@ export function useBankSync() {
   const [state, setState] = useState<Record<number, SyncState>>({});
 
   const start = useCallback(
-    (credentialId: number, provider?: string) => {
+    (credentialId: number, provider?: string, cards?: string[]) => {
       // The app-wide sync shows a progress dialog with a field for the code.
       if (asksForCode(provider) && globalSync) {
         globalSync.start(credentialId);
@@ -57,6 +57,12 @@ export function useBankSync() {
             duration: 12000,
             closeButton: true,
           });
+        } else if (event.type === "provider-done" && event.data.ok === false) {
+          toast.error(
+            (event.data.errorMessage as string | undefined) ??
+              `${(event.data.label as string | undefined) ?? "Bank"} didn't sync`,
+            { duration: 12_000, closeButton: true }
+          );
         } else if (event.type === "provider-2fa-manual") {
           setState((prev) => ({
             ...prev,
@@ -97,7 +103,7 @@ export function useBankSync() {
             closeButton: true,
           });
         }
-      });
+      }, cards);
     },
     [queryClient, globalSync]
   );

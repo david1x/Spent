@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import { ProviderBadge } from "./provider-badge";
 import { TwoFactorSection } from "./two-factor-section";
+import { useTranslations } from "next-intl";
 
 type Sub = "pick" | "form" | "ready";
 
@@ -471,6 +472,7 @@ function CredentialForm({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const tBank = useTranslations("settings.bank");
   const queryClient = useQueryClient();
   const [label, setLabel] = useState(initialLabel);
   const [savedCredentialId, setSavedCredentialId] = useState<number | null>(
@@ -509,14 +511,17 @@ function CredentialForm({
     };
   }, [isEdit, credentialId]);
 
+  const paused = Boolean(info.syncPaused);
+  // A paused bank can't sign in, so it can be saved with just a label for imports.
   const valid =
     label.trim().length > 0 &&
-    info.credentialFields.every((f) => {
-    const v = credentials[f.key]?.trim() ?? "";
-    if (!v) return false;
-    if (f.exactLength != null && v.length !== f.exactLength) return false;
-    return true;
-    });
+    (paused ||
+      info.credentialFields.every((f) => {
+        const v = credentials[f.key]?.trim() ?? "";
+        if (!v) return false;
+        if (f.exactLength != null && v.length !== f.exactLength) return false;
+        return true;
+      }));
 
   const saveOptions = (id: number | null) => ({
     label: label.trim(),
@@ -620,6 +625,14 @@ function CredentialForm({
               placeholder={`e.g. Personal card, ${info.name} (2)`}
             />
           </div>
+          {paused ? (
+            <div className="rounded-md bg-[color-mix(in_oklch,var(--status-heads-up)_12%,transparent)] px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {tBank("pausedTitle", { name: info.name })}.
+              </span>{" "}
+              {tBank("pausedBody", { name: info.name })}
+            </div>
+          ) : null}
           {info.credentialFields.map((field) => {
             const value = credentials[field.key] ?? "";
             const tooShort =
@@ -676,11 +689,13 @@ function CredentialForm({
             );
           })}
 
+          {paused ? null : (
           <TwoFactorSection
             info={info}
             requiresManualTwoFactor={requiresManualTwoFactor}
             onChangeManualFlag={setRequiresManualTwoFactor}
           />
+      )}
 
           <AnimatePresence>
             {status === "testing-ok" && (
@@ -716,14 +731,16 @@ function CredentialForm({
           </AnimatePresence>
 
           <div className="flex items-center gap-2 pt-2">
-            <Button
-              variant="outline"
-              onClick={handleTest}
-              disabled={!valid || testing || saving}
-              className="flex-1 rounded-full"
-            >
-              {testing ? "Testing..." : "Test connection"}
-            </Button>
+            {paused ? null : (
+              <Button
+                variant="outline"
+                onClick={handleTest}
+                disabled={!valid || testing || saving}
+                className="flex-1 rounded-full"
+              >
+                {testing ? "Testing..." : "Test connection"}
+              </Button>
+            )}
             <Button
               onClick={handleSave}
               disabled={!valid || saving}

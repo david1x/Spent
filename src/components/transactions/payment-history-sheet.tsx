@@ -18,6 +18,7 @@ import { ChartTooltip, TipBody, useChartTip } from "@/components/charts/chart-ki
 import { INCOME_INK } from "./summary-strip";
 import type { InstallmentPlan, TransactionHistory, TransactionWithCategory } from "@/lib/types";
 import type { Locale } from "@/i18n/routing";
+import { isRenamed, transactionName } from "@/lib/transaction-name";
 
 type Translator = ReturnType<typeof useTranslations<"transactions">>;
 
@@ -84,8 +85,18 @@ function HistoryContent({ data, onShowAll }: { data: TransactionHistory; onShowA
           {t("historyEyebrow")}
         </div>
         <SheetTitle className="line-clamp-2 text-xl font-semibold tracking-tight">
-          <bdi>{txn.description}</bdi>
+          <bdi>{transactionName(txn)}</bdi>
         </SheetTitle>
+        {isRenamed(txn) ? (
+          <p className="-mt-1 truncate font-mono text-[11px] text-muted-foreground" title={txn.description}>
+            <bdi>{txn.description}</bdi>
+          </p>
+        ) : null}
+        {txn.note ? (
+          <p className="text-sm text-muted-foreground">
+            <bdi>{txn.note}</bdi>
+          </p>
+        ) : null}
         <SheetDescription render={<div />} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px]">
           {categoryName ? (
             <span className="inline-flex items-center gap-1.5">

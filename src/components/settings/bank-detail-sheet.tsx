@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -43,9 +43,24 @@ import {
   updateIntegrationSettings,
 } from "@/lib/api";
 import { TwoFactorSection } from "@/components/setup/two-factor-section";
-import { Trash2, AlertTriangle, Loader2, FolderInput, ArrowRightLeft } from "lucide-react";
+import { ImportFileDialog } from "@/components/settings/import-file-dialog";
+import { useTranslations } from "next-intl";
+import {
+  Trash2,
+  AlertTriangle,
+  Loader2,
+  FolderInput,
+  ArrowRightLeft,
+  ExternalLink,
+  PauseCircle,
+  RefreshCw,
+  CreditCard,
+  Upload,
+} from "lucide-react";
 import { useActiveWorkspaceId } from "@/lib/workspace-store";
 import { MoveToWorkspace } from "@/components/settings/move-to-workspace";
+import { useBankSync } from "@/components/settings/use-bank-sync";
+import { LoginCardsSection } from "@/components/settings/login-cards-section";
 
 export interface BankDetailSheetProps {
   open: boolean;
@@ -130,6 +145,10 @@ function SheetBody({
       </SheetHeader>
 
       <div className="flex-1 space-y-6 p-6">
+        {info.syncPaused ? <PausedNotice info={info} /> : null}
+        {mode === "edit" && connected ? (
+          <ImportSection credentialId={connected.id} label={connected.label} />
+        ) : null}
         <CredentialsForm
           key={`${info.id}-${credentialId ?? "new"}`}
           info={info}
@@ -138,6 +157,9 @@ function SheetBody({
           initialLabel={connected?.label ?? ""}
           onSaved={onClose}
         />
+        {mode === "edit" && connected && info.listsCards ? (
+          <LoginCardsSection login={connected} />
+        ) : null}
         {mode === "edit" && connected && info.kind === "card" ? (
           <CardsSection login={connected} />
         ) : null}
@@ -163,6 +185,60 @@ function SheetBody({
   );
 }
 
+function PausedNotice({ info }: { info: BankProviderInfo }) {
+  const t = useTranslations("settings.bank");
+  return (
+    <div className="rounded-xl border border-[color-mix(in_oklch,var(--status-heads-up)_35%,transparent)] bg-[color-mix(in_oklch,var(--status-heads-up)_10%,transparent)] p-4">
+      <div className="flex items-start gap-3">
+        <PauseCircle
+          className="mt-0.5 size-4 shrink-0 text-[color-mix(in_oklch,var(--status-heads-up)_70%,var(--foreground))]"
+          aria-hidden="true"
+        />
+        <div className="min-w-0 space-y-1.5">
+          <p className="text-sm font-medium">{t("pausedTitle", { name: info.name })}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {t("pausedBody", { name: info.name })}
+          </p>
+          {info.syncPaused ? (
+            <a
+              href={info.syncPaused.issueUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-medium underline-offset-4 hover:underline"
+            >
+              {t("pausedLink")}
+              <ExternalLink className="size-3" aria-hidden="true" />
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImportSection({ credentialId, label }: { credentialId: number; label: string }) {
+  const t = useTranslations("settings.bank");
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4">
+      <div className="min-w-0 flex-1 basis-56">
+        <p className="text-sm font-medium">{t("importSectionTitle")}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{t("importSectionBody")}</p>
+      </div>
+      <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
+        <Upload className="size-3.5" />
+        {t("importShort")}
+      </Button>
+      <ImportFileDialog
+        open={open}
+        onOpenChange={setOpen}
+        credentialId={credentialId}
+        connectionLabel={label}
+      />
+    </div>
+  );
+}
+
 function CredentialsForm({
   info,
   isEdit,
@@ -177,6 +253,7 @@ function CredentialsForm({
   onSaved: () => void;
 }) {
   const queryClient = useQueryClient();
+  const tBank = useTranslations("settings.bank");
   const [label, setLabel] = useState(initialLabel);
   const [savedCredentialId, setSavedCredentialId] = useState<number | null>(
     credentialId
@@ -217,14 +294,17 @@ function CredentialsForm({
     };
   }, [isEdit, credentialId]);
 
+  const paused = Boolean(info.syncPaused);
+  // A paused bank can't sign in, so it can be saved with just a label for imports.
   const allValid =
     label.trim().length > 0 &&
+    (paused ||
     info.credentialFields.every((f) => {
       const v = credentials[f.key]?.trim() ?? "";
       if (!v) return false;
       if (f.exactLength != null && v.length !== f.exactLength) return false;
       return true;
-    });
+    }));
 
   const saveOptions = (id: number | null) => ({
     label: label.trim(),
@@ -342,6 +422,9 @@ function CredentialsForm({
       <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         Credentials
       </div>
+      {paused ? (
+        <p className="-mt-2 text-xs text-muted-foreground">{tBank("pausedLabelOnly")}</p>
+      ) : null}
       {info.credentialFields.map((field) => {
         const value = credentials[field.key] ?? "";
         const tooShort =
@@ -380,6 +463,7 @@ function CredentialsForm({
         );
       })}
 
+      {paused ? null : (
       <TwoFactorSection
         info={info}
         requiresManualTwoFactor={requiresManualTwoFactor}
@@ -389,6 +473,7 @@ function CredentialsForm({
         resetPending={resetPending}
         showResetButton={savedCredentialId != null}
       />
+      )}
 
       {result && (
         <div
@@ -403,13 +488,15 @@ function CredentialsForm({
       )}
 
       <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
-        <Button
-          variant="outline"
-          onClick={handleTest}
-          disabled={!allValid || testing || saving}
-        >
-          {testing ? "Testing…" : "Test connection"}
-        </Button>
+        {paused ? null : (
+          <Button
+            variant="outline"
+            onClick={handleTest}
+            disabled={!allValid || testing || saving}
+          >
+            {testing ? "Testing…" : "Test connection"}
+          </Button>
+        )}
         <Button onClick={handleSave} disabled={!allValid || saving || testing}>
           {saving ? "Saving…" : "Save"}
         </Button>
@@ -513,17 +600,78 @@ export function MovedInCardsSection() {
     queryKey: ["movedInCards"],
     queryFn: listMovedInCards,
   });
+  const { start, stateFor } = useBankSync();
+  const [managing, setManaging] = useState<number | null>(null);
   if (movedIn.length === 0) return null;
+
+  // One entry per login, even when several of its cards moved here.
+  const logins = [...new Map(movedIn.map((m) => [m.credentialId, m])).values()];
 
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="text-sm font-semibold">Cards from other workspaces</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Their login lives in another workspace. Purchases on these cards count here,
-          and new ones arrive whenever that login syncs.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold">Cards from other workspaces</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Their login lives in another workspace. Purchases on these cards count here,
+            and syncing this workspace syncs that login too.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {logins.map((m) => {
+            const name = BANK_PROVIDERS.find((p) => p.id === m.provider)?.name ?? m.provider;
+            const state = stateFor(m.credentialId);
+            const what = logins.length > 1 ? ` ${m.label || name}` : "";
+            const manageButton = BANK_PROVIDERS.find((p) => p.id === m.provider)?.listsCards ? (
+              <Button
+                key={`manage-${m.credentialId}`}
+                variant={managing === m.credentialId ? "secondary" : "ghost"}
+                size="sm"
+                className="gap-1.5"
+                aria-expanded={managing === m.credentialId}
+                onClick={() => setManaging((v) => (v === m.credentialId ? null : m.credentialId))}
+              >
+                <CreditCard className="h-3.5 w-3.5" />
+                {`All cards${what}`}
+              </Button>
+            ) : null;
+            const syncControl = state.syncing ? (
+              <span
+                key={m.credentialId}
+                className="inline-flex h-8 items-center gap-1.5 px-2 text-xs text-muted-foreground"
+              >
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {state.stage || "Syncing…"}
+              </span>
+            ) : (
+              <Button
+                key={m.credentialId}
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => start(m.credentialId, m.provider)}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {`Sync${what}`}
+              </Button>
+            );
+            return (
+              <Fragment key={m.credentialId}>
+                {manageButton}
+                {syncControl}
+              </Fragment>
+            );
+          })}
+        </div>
       </div>
+      {managing !== null ? (
+        <div className="rounded-xl border border-border bg-muted/20 p-4">
+          <LoginCardsSection
+            login={{ id: managing, provider: logins.find((l) => l.credentialId === managing)?.provider ?? "" }}
+            compact
+          />
+        </div>
+      ) : null}
       <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         {movedIn.map((m) => {
           const info = BANK_PROVIDERS.find((p) => p.id === m.provider);

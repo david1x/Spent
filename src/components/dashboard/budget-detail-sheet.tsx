@@ -58,13 +58,14 @@ import {
   getCategoryDetail,
   updateBudget,
   updateCategoryBudgetMode,
-  updateTransactionCategory,
   type CategoryDetail,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { Switch } from "@/components/ui/switch";
 import type { Category, TransactionWithCategory } from "@/lib/types";
 import type { CategoryChildBreakdown } from "@/lib/api";
+import { TransactionRowList, useTransactionRowActions } from "./transactions-table";
+import { transactionName } from "@/lib/transaction-name";
 
 const ICON_MAP: Record<string, LucideIcon> = {
   "shopping-basket": ShoppingBasket,
@@ -141,6 +142,8 @@ function DetailSkeleton() {
 
 function DetailContent({ data }: { data: CategoryDetail }) {
   const queryClient = useQueryClient();
+  // The same row menus and "apply to this merchant" toast as the Transactions page.
+  const rows = useTransactionRowActions();
   const sameKindCategoriesQuery = useQuery({
     queryKey: ["categories", data.category.kind],
     queryFn: () => getCategories(data.category.kind),
@@ -158,8 +161,8 @@ function DetailContent({ data }: { data: CategoryDetail }) {
     invalidate();
   };
   const handleChangeCategory = async (id: number, categoryId: number) => {
-    await updateTransactionCategory(id, categoryId);
-    invalidate();
+    const txn = data.needsReviewTransactions.find((t) => t.id === id);
+    if (txn) rows.actions.changeCategory(txn, categoryId);
   };
 
   const handleToggleMode = async (checked: boolean) => {
@@ -402,52 +405,7 @@ function DetailContent({ data }: { data: CategoryDetail }) {
                 No transactions in this category for this period.
               </div>
             ) : (
-              <ul className="divide-y">
-                {data.transactions.map((t) => (
-                  <li
-                    key={t.id}
-                    className="flex items-center justify-between gap-3 px-4 py-2.5"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="break-words text-sm font-medium">
-                        <bdi>{t.description}</bdi>
-                      </div>
-                      <div className="text-xs text-muted-foreground tabular-nums">
-                        {formatDate(t.date)}
-                      </div>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent">
-                        <Badge
-                          variant="outline"
-                          className="border-none p-0"
-                          style={{ color: t.categoryColor ?? undefined }}
-                        >
-                          {t.categoryName ?? "Uncategorized"}
-                        </Badge>
-                        <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-auto min-w-44 max-h-80">
-                        {(sameKindCategoriesQuery.data ?? []).map((cat) => (
-                          <DropdownMenuItem
-                            key={cat.id}
-                            onClick={() => handleChangeCategory(t.id, cat.id)}
-                          >
-                            <div
-                              className="me-2 size-2 shrink-0 rounded-full"
-                              style={{ backgroundColor: cat.color }}
-                            />
-                            <span className="whitespace-nowrap">{cat.name}</span>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <div className="shrink-0 text-sm font-medium tabular-nums">
-                      {formatCurrency(t.chargedAmount)}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <TransactionRowList transactions={data.transactions} controller={rows} />
             )}
           </div>
         </div>
@@ -568,7 +526,7 @@ function NeedsReviewSection({
           >
             <div className="min-w-0 flex-1">
               <div className="break-words text-sm font-medium">
-                <bdi>{t.description}</bdi>
+                <bdi>{transactionName(t)}</bdi>
               </div>
               <div className="text-xs text-muted-foreground tabular-nums">
                 {formatDate(t.date)} · {formatCurrency(t.chargedAmount)}

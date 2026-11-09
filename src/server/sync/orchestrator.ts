@@ -9,10 +9,19 @@ import {
 } from "@/server/db/queries/bank-credentials";
 import { getAppSettings } from "@/server/db/queries/settings";
 import { reconcileCardBills } from "@/server/lib/card-bills";
+import { getLoginHome, listRoutedIn } from "@/server/lib/card-routes";
+import {
+  excludedCards,
+  listLoginCards,
+  recordSeenCards,
+  type LoginCardRow,
+  type SeenCard,
+} from "@/server/db/queries/login-cards";
 import {
   createSyncRun,
   completeSyncRun,
   failSyncRun,
+  isCredentialSyncing,
 } from "@/server/db/queries/sync-runs";
 import {
   insertTransactions,
@@ -49,7 +58,7 @@ import {
   markSyncHeartbeat,
   markSyncStart,
 } from "@/server/sync/activity";
-import type { ScrapeResult } from "@/server/scrapers/types";
+import type { CardScope, ScrapeResult } from "@/server/scrapers/types";
 
 export type SyncEventSender = (
   event: string,
@@ -109,6 +118,7 @@ interface RunScrapeArgs {
   syncRunId: number;
   manualTwoFactor: boolean;
   send: SyncEventSender;
+  cardScope?: CardScope;
 }
 
 async function runScrapeForProvider(args: RunScrapeArgs): Promise<ScrapeResult> {
@@ -127,12 +137,16 @@ async function runScrapeForProvider(args: RunScrapeArgs): Promise<ScrapeResult> 
   if (supportsProgrammaticTwoFactor(provider)) {
     const existingToken = credentials.otpLongTermToken;
     if (existingToken) {
-      return scrapeOneZeroWithToken({
+      const withToken = await scrapeOneZeroWithToken({
         email: credentials.email,
         password: credentials.password,
         otpLongTermToken: existingToken,
         startDate,
       });
+      if (!withToken.tokenRejected) return withToken;
+      // The saved token expired. Drop it and fall through to the SMS flow so
+      // this same sync asks for a fresh code instead of failing every time.
+      updateCredentialField(workspaceId, credentialId, "otpLongTermToken", null);
     }
 
     if (!credentials.email || !credentials.password) {
@@ -199,7 +213,62 @@ async function runScrapeForProvider(args: RunScrapeArgs): Promise<ScrapeResult> 
 
   return scrapeBank(workspaceId, provider, credentials, startDate, {
     manualTwoFactor,
+    cardScope: args.cardScope,
   });
+}
+
+/** Logins in the middle of a quick card check (no sync run row to show it). */
+const checkingCards = new Set<number>();
+
+function listsCards(provider: string): boolean {
+  return Boolean(BANK_PROVIDERS.find((b) => b.id === provider)?.listsCards);
+}
+
+/** Which cards a sync of this login reads: the ones asked for, minus any the user left out. */
+function cardScopeFor(meta: BankCredentialMeta, onlyCards?: string[]): CardScope | undefined {
+  if (!listsCards(meta.provider)) return undefined;
+  if (onlyCards && onlyCards.length > 0) return { only: onlyCards };
+  const skip = excludedCards(meta.id);
+  return skip.length > 0 ? { skip } : undefined;
+}
+
+export class CardCheckError extends Error {}
+
+/**
+ * The quick card check: sign in, read the card list, save it. No
+ * transactions, so it takes seconds instead of minutes, and the user can
+ * choose which cards to sync before the first full sync.
+ */
+export async function checkLoginCards(credentialId: number): Promise<LoginCardRow[]> {
+  const home = getLoginHome(credentialId);
+  if (!home || !listsCards(home.provider)) {
+    throw new CardCheckError("This connection can't list its cards.");
+  }
+  if (checkingCards.has(credentialId) || isCredentialSyncing(credentialId)) {
+    throw new CardCheckError(`${home.label} is syncing right now. Try again when it finishes.`);
+  }
+  const credentials = getBankCredentials(home.workspaceId, credentialId);
+  if (!credentials) throw new CardCheckError(`No credentials saved for ${home.label}.`);
+
+  checkingCards.add(credentialId);
+  markSyncHeartbeat();
+  try {
+    const result = await scrapeBank(home.workspaceId, home.provider as BankProvider, credentials, new Date(), {
+      manualTwoFactor: getRequiresManualTwoFactor(home.workspaceId, credentialId),
+      cardScope: { listOnly: true },
+    });
+    if (!result.success) throw new CardCheckError(result.errorMessage ?? "Couldn't read the card list.");
+    recordSeenCards(credentialId, seenCards(result.accounts));
+    return listLoginCards(credentialId);
+  } finally {
+    checkingCards.delete(credentialId);
+  }
+}
+
+function seenCards(accounts: ScrapeResult["accounts"]): SeenCard[] {
+  return accounts
+    .filter((a) => a.card)
+    .map((a) => ({ accountNumber: a.accountNumber, label: a.card!.label, active: a.card!.active }));
 }
 
 async function syncOneCredential(
@@ -208,9 +277,23 @@ async function syncOneCredential(
   meta: BankCredentialMeta,
   credentials: Record<string, string>,
   startDate: Date,
-  send: SyncEventSender
+  send: SyncEventSender,
+  onlyCards?: string[]
 ): Promise<ProviderResult> {
   const provider = meta.provider as BankProvider;
+  // Two sign-ins to one bank at once can log each other out, and both would
+  // write the same rows. Let the first finish.
+  if (isCredentialSyncing(meta.id) || checkingCards.has(meta.id)) {
+    return {
+      provider,
+      credentialId: meta.id,
+      label: meta.label,
+      ok: false,
+      added: 0,
+      updated: 0,
+      errorMessage: `${meta.label} is already syncing. Its results will show up when that sync finishes.`,
+    };
+  }
   const syncRunId = createSyncRun(
     workspaceId,
     provider,
@@ -231,6 +314,7 @@ async function syncOneCredential(
       syncRunId,
       manualTwoFactor,
       send,
+      cardScope: cardScopeFor(meta, onlyCards),
     });
   } catch (err) {
     // A thrown error (rather than a returned failure) used to leave the run
@@ -257,6 +341,8 @@ async function syncOneCredential(
       syncRunId,
     };
   }
+
+  recordSeenCards(meta.id, seenCards(result.accounts));
 
   const allTransactions = result.accounts.flatMap((account) =>
     account.transactions.map((txn) => ({
@@ -291,18 +377,54 @@ async function syncOneCredential(
   };
 }
 
+/** A login to sync, and the workspace it belongs to (where its rows land unless a card is routed). */
+interface SyncTarget {
+  meta: BankCredentialMeta;
+  homeWorkspaceId: number;
+}
+
+/**
+ * The logins a workspace's sync covers: its own, plus logins from other
+ * workspaces whose cards were moved here. Without the second group, a card
+ * moved out of its login's workspace could only be refreshed from there.
+ */
+function listSyncTargets(workspaceId: number): SyncTarget[] {
+  const targets: SyncTarget[] = listBankCredentials(workspaceId).map((meta) => ({
+    meta,
+    homeWorkspaceId: workspaceId,
+  }));
+  for (const credentialId of new Set(listRoutedIn(workspaceId).map((r) => r.credentialId))) {
+    const home = getLoginHome(credentialId);
+    const meta = home
+      ? listBankCredentials(home.workspaceId).find((c) => c.id === credentialId)
+      : undefined;
+    if (home && meta) targets.push({ meta, homeWorkspaceId: home.workspaceId });
+  }
+  // Paused banks block automated sign-in; their rows arrive by file import.
+  return targets.filter(
+    (t) => !BANK_PROVIDERS.find((b) => b.id === t.meta.provider)?.syncPaused
+  );
+}
+
 export async function syncWorkspace(
   workspaceId: number,
   filterCredentialId: number | undefined,
-  send: SyncEventSender
+  send: SyncEventSender,
+  /** Logins already synced in this run (syncing every workspace); skipped and then added to. */
+  alreadySynced?: Set<number>,
+  /** With a single login: read only these of its cards. */
+  onlyCards?: string[]
 ): Promise<WorkspaceSummary> {
   const workspace = getWorkspace(workspaceId);
   const workspaceName = workspace?.name ?? `Workspace ${workspaceId}`;
 
-  const allCreds = listBankCredentials(workspaceId);
-  const credsToSync: BankCredentialMeta[] = filterCredentialId
-    ? allCreds.filter((c) => c.id === filterCredentialId)
-    : allCreds;
+  const targets = listSyncTargets(workspaceId).filter(
+    (t) =>
+      (filterCredentialId == null || t.meta.id === filterCredentialId) &&
+      !alreadySynced?.has(t.meta.id)
+  );
+  for (const t of targets) alreadySynced?.add(t.meta.id);
+  const credsToSync = targets.map((t) => t.meta);
 
   if (credsToSync.length === 0) {
     send("plan", {
@@ -322,9 +444,12 @@ export async function syncWorkspace(
     };
   }
 
-  const settings = getAppSettings(workspaceId);
-  const startDate = new Date();
-  startDate.setMonth(startDate.getMonth() - settings.monthsToSync);
+  // A login reaches back as far as its own workspace's setting says.
+  const startDateFor = (homeId: number) => {
+    const date = new Date();
+    date.setMonth(date.getMonth() - getAppSettings(homeId).monthsToSync);
+    return date;
+  };
 
   send("plan", {
     workspaceId,
@@ -335,8 +460,8 @@ export async function syncWorkspace(
 
   const results: ProviderResult[] = [];
 
-  for (let i = 0; i < credsToSync.length; i++) {
-    const meta = credsToSync[i];
+  for (let i = 0; i < targets.length; i++) {
+    const { meta, homeWorkspaceId } = targets[i];
     const provider = meta.provider as BankProvider;
 
     send("provider-start", {
@@ -350,7 +475,7 @@ export async function syncWorkspace(
     });
     markSyncHeartbeat();
 
-    const credentials = getBankCredentials(workspaceId, meta.id);
+    const credentials = getBankCredentials(homeWorkspaceId, meta.id);
     if (!credentials) {
       send("provider-done", {
         workspaceId,
@@ -376,14 +501,24 @@ export async function syncWorkspace(
     }
 
     try {
+      const homeName =
+        homeWorkspaceId === workspaceId
+          ? workspaceName
+          : getWorkspace(homeWorkspaceId)?.name ?? `Workspace ${homeWorkspaceId}`;
       const result = await syncOneCredential(
-        workspaceId,
-        workspaceName,
+        homeWorkspaceId,
+        homeName,
         meta,
         credentials,
-        startDate,
-        send
+        startDateFor(homeWorkspaceId),
+        send,
+        filterCredentialId != null ? onlyCards : undefined
       );
+      // A moved-in login's unrouted cards write to its own workspace, which
+      // then needs the same bill matching and categorizing as routed ones.
+      if (homeWorkspaceId !== workspaceId) {
+        result.routedWorkspaceIds = [...(result.routedWorkspaceIds ?? []), homeWorkspaceId];
+      }
       results.push(result);
       send("provider-done", {
         workspaceId,
@@ -469,6 +604,31 @@ export async function syncWorkspace(
     categorized,
     aiWarning,
   };
+}
+
+/**
+ * What a sync does after inserting rows, for rows that came from a file:
+ * match card bills, then categorize. Categorizing can take minutes with a
+ * local model, so it runs in the background and the import returns at once.
+ */
+export function finishImportedRows(workspaceIds: number[]): void {
+  for (const id of workspaceIds) {
+    try {
+      reconcileCardBills(id);
+    } catch (err) {
+      console.error("[import] card bill reconciliation failed:", err);
+    }
+  }
+  void (async () => {
+    for (const id of workspaceIds) {
+      const name = getWorkspace(id)?.name ?? `Workspace ${id}`;
+      try {
+        await categorizeWorkspace(id, name, NOOP_SEND);
+      } catch (err) {
+        console.error("[import] categorization failed:", err);
+      }
+    }
+  })();
 }
 
 /**
@@ -632,8 +792,10 @@ export async function runAllWorkspaces(
   try {
     const workspaceIds = listAllWorkspaceIds();
     const summaries: WorkspaceSummary[] = [];
+    // A login with cards in several workspaces is listed by each; scrape it once.
+    const synced = new Set<number>();
     for (const workspaceId of workspaceIds) {
-      const summary = await syncWorkspace(workspaceId, filterCredentialId, send);
+      const summary = await syncWorkspace(workspaceId, filterCredentialId, send, synced);
       summaries.push(summary);
     }
     return summaries;

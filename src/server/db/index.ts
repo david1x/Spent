@@ -22,6 +22,15 @@ function createDatabase(): Database.Database {
   db.pragma("busy_timeout = 5000");
 
   runMigrations(db);
+  // Syncs run inside this process, so a run still "running" when the database
+  // opens was cut off by a restart or crash. Left as is it would block moving
+  // that bank and show as syncing forever.
+  db.prepare(
+    `UPDATE sync_runs
+     SET status = 'failed', completed_at = datetime('now'),
+         error_message = 'Interrupted: Spent stopped before this sync finished. Sync again.'
+     WHERE status = 'running'`
+  ).run();
   // Bundled exchange rates, then shekel estimates for foreign purchases.
   seedFxRates(db);
   refreshEstimatedCharges(db);

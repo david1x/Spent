@@ -18,6 +18,18 @@ export interface ScrapedTransaction {
 export interface ScrapedAccount {
   accountNumber: string;
   transactions: ScrapedTransaction[];
+  /** Card companies that list their cards say what each one is. */
+  card?: { label: string | null; active: boolean };
+}
+
+/** Which cards of a card login a scrape reads (for card companies that list cards). */
+export interface CardScope {
+  /** Sign in and read the card list only, no transactions: the quick card check. */
+  listOnly?: boolean;
+  /** Read only these cards (last digits, as the card company reports them). */
+  only?: string[];
+  /** Leave these cards out. */
+  skip?: string[];
 }
 
 export interface ScrapeResult {

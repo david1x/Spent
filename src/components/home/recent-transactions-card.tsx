@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/formatters";
 import { translateCategoryName, translateProviderName } from "@/lib/i18n-data";
 import type { Locale } from "@/i18n/routing";
 import type { HomeRecentTransaction } from "@/lib/types";
+import { transactionName } from "@/lib/transaction-name";
 import { CardShell, CardAction } from "./card-shell";
 import { categoryIconFor } from "./category-icon";
 import { bcpFor, tintFor } from "./home-format";
@@ -132,7 +133,7 @@ function Row({ txn, locale }: { txn: HomeRecentTransaction; locale: Locale }) {
             !txn.isCounted && "text-muted-foreground"
           )}
         >
-          <bdi>{txn.description}</bdi>
+          <bdi>{transactionName(txn)}</bdi>
         </div>
         <div className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
           {!txn.isCounted && (

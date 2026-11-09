@@ -1,7 +1,7 @@
 import "server-only";
 
 import { CompanyTypes, createScraper } from "israeli-bank-scrapers";
-import type { ScrapeResult, ScrapedTransaction } from "./types";
+import type { CardScope, ScrapeResult, ScrapedTransaction } from "./types";
 import type { BankProvider } from "@/lib/types";
 import { getWorkspaceSetting } from "../db/queries/settings";
 import { formatSyncError } from "@/lib/sync-error";
@@ -110,6 +110,16 @@ function classifyError(error: unknown): {
     };
   }
 
+  // The bank's page navigated while the scraper was working in it (a
+  // redirect or self-reload mid-login). The next attempt usually goes through.
+  if (/Execution context was destroyed|detached Frame/i.test(msg)) {
+    return {
+      retryable: true,
+      friendly:
+        "The bank's site reloaded in the middle of the sync. This is usually temporary. Try again in a few minutes.",
+    };
+  }
+
   // Puppeteer reports a closed tab or window this way. With "Show browser
   // during sync" on, that's almost always the user closing it early.
   if (/Target closed|Session closed|browser has disconnected|Connection closed/i.test(msg)) {
@@ -144,7 +154,8 @@ async function runScrape(
   provider: BankProvider,
   credentials: Record<string, string>,
   startDate: Date,
-  showBrowser: boolean
+  showBrowser: boolean,
+  cardScope?: CardScope
 ): Promise<ScrapeResult> {
   const companyId = PROVIDER_MAP[provider];
   if (!companyId) {
@@ -178,8 +189,14 @@ async function runScrape(
     args: chromiumArgs,
   };
   // Isracard needs a click on its login page first; see ./isracard.ts.
-  const scraper =
-    provider === "isracard" ? new SpentIsracardScraper(options) : createScraper(options);
+  let scraper: ReturnType<typeof createScraper>;
+  if (provider === "isracard") {
+    const isracard = new SpentIsracardScraper(options);
+    if (cardScope) isracard.cardScope = cardScope;
+    scraper = isracard;
+  } else {
+    scraper = createScraper(options);
+  }
 
   // credentials shape varies by provider; the library accepts different types per bank
   const result = await scraper.scrape(
@@ -189,6 +206,11 @@ async function runScrape(
   if (!result.success) {
     const errorType = result.errorType ?? "GENERIC";
     console.error(`[scraper] failed (${errorType}):`, result.errorMessage);
+    // The library returns failures instead of throwing them. Throw the
+    // transient ones so scrapeBank's retry loop gets to try again.
+    if (result.errorMessage && classifyError(new Error(result.errorMessage)).retryable) {
+      throw new Error(result.errorMessage);
+    }
     const detail = result.errorMessage
       ? sanitizeError(new Error(result.errorMessage))
       : errorType;
@@ -216,6 +238,8 @@ async function runScrape(
 
   const accounts = (result.accounts ?? []).map((account) => ({
     accountNumber: account.accountNumber,
+    // Set by scrapers that list their cards (./isracard-digital-v3.ts).
+    card: (account as { card?: { label: string | null; active: boolean } }).card,
     transactions: account.txns.map(
       (txn): ScrapedTransaction => ({
         type: txn.type === "installments" ? "installments" : "normal",
@@ -246,6 +270,8 @@ interface ScrapeBankOptions {
    * popup for just that one provider.
    */
   manualTwoFactor?: boolean;
+  /** Which cards to read, for card companies that list them (Isracard). */
+  cardScope?: CardScope;
 }
 
 export async function scrapeBank(
@@ -266,7 +292,7 @@ export async function scrapeBank(
       console.log(
         `[scraper] starting scrape for ${provider} from ${startDate.toISOString()} (attempt ${attempt}/${MAX_ATTEMPTS}, showBrowser=${showBrowser})`
       );
-      return await runScrape(provider, credentials, startDate, showBrowser);
+      return await runScrape(provider, credentials, startDate, showBrowser, options.cardScope);
     } catch (error) {
       lastError = error;
       console.error(

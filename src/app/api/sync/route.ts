@@ -20,10 +20,16 @@ function sseEvent(
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     credentialId?: number;
+    cards?: unknown;
   };
   const filterCredentialId =
     body.credentialId != null && Number.isFinite(body.credentialId)
       ? body.credentialId
+      : undefined;
+  // "Sync just this card": only with one login, and only card numbers.
+  const onlyCards =
+    filterCredentialId != null && Array.isArray(body.cards)
+      ? body.cards.filter((c): c is string => typeof c === "string" && /^\w{1,32}$/.test(c)).slice(0, 20)
       : undefined;
 
   // When the request includes X-Workspace-ID we sync only that workspace
@@ -61,7 +67,7 @@ export async function POST(request: Request) {
         if (headerPresent) {
           const workspaceId = getWorkspaceIdFromRequest(request);
           summaries.push(
-            await syncWorkspace(workspaceId, filterCredentialId, send)
+            await syncWorkspace(workspaceId, filterCredentialId, send, undefined, onlyCards)
           );
         } else {
           summaries.push(...(await runAllWorkspaces(filterCredentialId, send)));

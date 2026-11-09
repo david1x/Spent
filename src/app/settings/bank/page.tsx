@@ -10,6 +10,8 @@ import {
   Loader2,
   CircleCheck,
   CircleAlert,
+  PauseCircle,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +24,7 @@ import { ProviderBadge } from "@/components/setup/provider-badge";
 import { SectionShell } from "@/components/settings/section-shell";
 import { BankDetailSheet, MovedInCardsSection } from "@/components/settings/bank-detail-sheet";
 import { useBankSync } from "@/components/settings/use-bank-sync";
+import { ImportFileDialog } from "@/components/settings/import-file-dialog";
 import { listIntegrations } from "@/lib/api";
 import { BANK_PROVIDERS } from "@/lib/types";
 import { translateProviderName, useFormatterLabels } from "@/lib/i18n-data";
@@ -51,6 +54,7 @@ export default function BankSettingsPage() {
     providerId: null,
     credentialId: null,
   });
+  const [importFor, setImportFor] = useState<Integration | null>(null);
 
   const lastSync = useMemo(() => {
     const stamps = integrations
@@ -62,8 +66,12 @@ export default function BankSettingsPage() {
 
   const availableToAdd = BANK_PROVIDERS.filter((b) => b.enabled);
 
+  const isPaused = (provider: string) =>
+    Boolean(BANK_PROVIDERS.find((b) => b.id === provider)?.syncPaused);
+  const syncable = integrations.filter((i) => !isPaused(i.provider));
+
   const handleSyncAll = () => {
-    integrations.forEach((i) => start(i.id, i.provider));
+    syncable.forEach((i) => start(i.id, i.provider));
   };
 
   const sheetIntegration: Integration | null =
@@ -96,7 +104,7 @@ export default function BankSettingsPage() {
               variant="outline"
               size="sm"
               onClick={handleSyncAll}
-              disabled={integrations.length === 0 || anySyncing}
+              disabled={syncable.length === 0 || anySyncing}
               className="gap-1.5"
             >
               <RefreshCw className="h-3.5 w-3.5" />
@@ -197,6 +205,7 @@ export default function BankSettingsPage() {
                           <StatusPill
                             lastSyncAt={integration.lastSyncAt}
                             syncing={sync.syncing}
+                            paused={Boolean(info.syncPaused)}
                           />
                         </div>
                         <div className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -206,11 +215,23 @@ export default function BankSettingsPage() {
                         </div>
                       </div>
                     </button>
-                    <SyncShortButton
-                      syncing={sync.syncing}
-                      stage={sync.stage}
-                      onClick={() => start(integration.id, integration.provider)}
-                    />
+                    {info.syncPaused ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0 gap-1.5"
+                        onClick={() => setImportFor(integration)}
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        {t("importShort")}
+                      </Button>
+                    ) : (
+                      <SyncShortButton
+                        syncing={sync.syncing}
+                        stage={sync.stage}
+                        onClick={() => start(integration.id, integration.provider)}
+                      />
+                    )}
                     <button
                       type="button"
                       onClick={openSheet}
@@ -238,6 +259,16 @@ export default function BankSettingsPage() {
         connected={sheetIntegration}
         onClose={() => setSheet((s) => ({ ...s, open: false }))}
       />
+      {importFor ? (
+        <ImportFileDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setImportFor(null);
+          }}
+          credentialId={importFor.id}
+          connectionLabel={importFor.label}
+        />
+      ) : null}
     </>
   );
 }
@@ -245,11 +276,20 @@ export default function BankSettingsPage() {
 function StatusPill({
   lastSyncAt,
   syncing,
+  paused,
 }: {
   lastSyncAt: string | null;
   syncing: boolean;
+  paused: boolean;
 }) {
   const t = useTranslations("settings.bank");
+  if (paused) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+        <PauseCircle className="h-3 w-3" /> {t("statusPaused")}
+      </span>
+    );
+  }
   if (syncing) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">

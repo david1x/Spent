@@ -33,6 +33,18 @@ export function completeSyncRun(
     .run(added, updated, id);
 }
 
+/**
+ * Whether this login has a sync in progress. Runs left "running" by a crash
+ * are closed when the database opens, so a running row here is live.
+ */
+export function isCredentialSyncing(credentialId: number): boolean {
+  return Boolean(
+    getDb()
+      .prepare("SELECT 1 FROM sync_runs WHERE credential_id = ? AND status = 'running' LIMIT 1")
+      .get(credentialId)
+  );
+}
+
 export function failSyncRun(id: number, errorMessage: string): void {
   getDb()
     .prepare(

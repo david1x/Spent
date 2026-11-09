@@ -4,6 +4,7 @@ import {
   setTransactionKind,
   setTransactionNeedsReview,
   getTransactionContext,
+  setTransactionText,
 } from "@/server/db/queries/transactions";
 import { recordMerchantCategory, sameMerchantTransactionIds } from "@/server/lib/merchant-memory";
 import { getDb } from "@/server/db";
@@ -95,9 +96,36 @@ export async function PATCH(
   const body = (await request.json().catch(() => ({}))) as {
     kind?: unknown;
     approve?: unknown;
+    displayName?: unknown;
+    note?: unknown;
+    applyNameToMerchant?: unknown;
   };
 
   const numericId = Number(id);
+
+  // The user's name and note for the row. A name can then be given to the
+  // merchant's other rows too, the way a category can.
+  if ("displayName" in body || "note" in body) {
+    const text = (v: unknown) => (typeof v === "string" ? v : v === null ? null : undefined);
+    const displayName = text(body.displayName);
+    const note = text(body.note);
+    if (("displayName" in body && displayName === undefined) || ("note" in body && note === undefined)) {
+      return NextResponse.json({ error: "displayName and note must be strings or null" }, { status: 400 });
+    }
+    if (setTransactionText(workspaceId, [numericId], { displayName, note }) === 0) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const others = sameMerchantTransactionIds(workspaceId, numericId, undefined, true);
+    let applied = 0;
+    if (body.applyNameToMerchant === true && displayName !== undefined) {
+      applied = setTransactionText(workspaceId, others, { displayName });
+    }
+    return NextResponse.json({
+      success: true,
+      applied,
+      sameMerchantCount: body.applyNameToMerchant === true ? 0 : others.length,
+    });
+  }
 
   if (body.approve === true) {
     const ctx = getTransactionContext(workspaceId, numericId);

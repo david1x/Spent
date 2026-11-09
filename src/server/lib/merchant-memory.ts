@@ -2,6 +2,7 @@ import "server-only";
 
 import { getDb } from "../db/index";
 import type { CategoryKind } from "@/lib/types";
+import { isSameSeries } from "./description-series";
 
 export function normalizeMerchant(description: string): string {
   return description
@@ -14,13 +15,16 @@ export function normalizeMerchant(description: string): string {
 
 /**
  * Other transactions from the same merchant as `id`: same normalized name
- * and the same direction (a refund is not a purchase). Transfers are left
- * out. `differentFrom` keeps only rows not already in that category.
+ * (or the same name with a new running reference, like a check number) and
+ * the same direction (a refund is not a purchase). Transfers are left
+ * out unless `includeTransfers` (naming a row applies to them too).
+ * `differentFrom` keeps only rows not already in that category.
  */
 export function sameMerchantTransactionIds(
   workspaceId: number,
   id: number,
-  differentFrom?: number
+  differentFrom?: number,
+  includeTransfers = false
 ): number[] {
   const db = getDb();
   const base = db
@@ -32,7 +36,7 @@ export function sameMerchantTransactionIds(
   const rows = db
     .prepare(
       `SELECT id, description, charged_amount, category_id FROM transactions
-       WHERE workspace_id = ? AND id != ? AND kind != 'transfer'`
+       WHERE workspace_id = ? AND id != ? ${includeTransfers ? "" : "AND kind != 'transfer'"}`
     )
     .all(workspaceId, id) as Array<{ id: number; description: string; charged_amount: number; category_id: number | null }>;
   return rows
@@ -40,7 +44,7 @@ export function sameMerchantTransactionIds(
       (r) =>
         r.charged_amount < 0 === outgoing &&
         (differentFrom === undefined || r.category_id !== differentFrom) &&
-        normalizeMerchant(r.description) === key
+        (normalizeMerchant(r.description) === key || isSameSeries(base.description, r.description))
     )
     .map((r) => r.id);
 }

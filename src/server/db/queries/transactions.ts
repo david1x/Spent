@@ -6,6 +6,7 @@ import { detectKind } from "../../lib/transfers";
 import { countedSql, notCountedSql } from "./counted";
 import { scopeSql } from "../../lib/scope";
 import { getCardRouteMap } from "../../lib/card-routes";
+import { isSameSeries, mayHaveSeries } from "../../lib/description-series";
 import { normalizeCurrency } from "@/lib/currency";
 import { estimateIlsCharge, needsIlsEstimate } from "../../lib/fx-estimate";
 import type {
@@ -305,9 +306,11 @@ export function queryTransactions(
     values.push(params.to);
   }
   if (params.search) {
-    conditions.push("(t.description LIKE ? OR t.memo LIKE ?)");
+    conditions.push(
+      "(t.description LIKE ? OR t.memo LIKE ? OR t.display_name LIKE ? OR t.note LIKE ?)"
+    );
     const term = `%${params.search}%`;
-    values.push(term, term);
+    values.push(term, term, term, term);
   }
   if (params.categoryIds && params.categoryIds.length > 0) {
     const placeholders = params.categoryIds.map(() => "?").join(",");
@@ -695,6 +698,20 @@ export function getPeriodTotal(
   return row.total;
 }
 
+/** Money in for a range, counted the same way as the Transactions page's income. */
+export function getIncomeTotal(workspaceId: number, from: string, to: string): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(charged_amount), 0) as total
+       FROM transactions
+       WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
+         AND status = 'completed' AND kind != 'transfer' AND charged_amount > 0
+         AND ${countedSql()}`
+    )
+    .get(workspaceId, from, to) as { total: number };
+  return row.total;
+}
+
 export function getPeriodCount(
   workspaceId: number,
   from: string,
@@ -722,6 +739,8 @@ interface TransactionRow {
   charged_currency: string | null;
   description: string;
   memo: string | null;
+  display_name?: string | null;
+  note?: string | null;
   type: string;
   status: string;
   identifier: string | null;
@@ -770,6 +789,8 @@ function mapTransactionRow(row: unknown): TransactionWithCategory {
     chargedCurrency: r.charged_currency == null ? null : normalizeCurrency(r.charged_currency),
     description: r.description,
     memo: r.memo,
+    displayName: r.display_name ?? null,
+    note: r.note ?? null,
     type: r.type as "normal" | "installments",
     status: r.status as "completed" | "pending",
     identifier: r.identifier,
@@ -799,7 +820,8 @@ const HISTORY_ROW_LIMIT = 500;
 
 /**
  * The payment history sheet: the installment plan this row belongs to (if
- * any) and every row with the same merchant name. Workspace-wide, so bank
+ * any) and every row with the same merchant name, counting names that differ
+ * only by a running reference such as a check number. Workspace-wide, so bank
  * bundles don't hide earlier payments made from another account.
  */
 export function getTransactionHistory(
@@ -813,26 +835,40 @@ export function getTransactionHistory(
   if (!row) return null;
   const transaction = mapTransactionRow(row);
 
+  const descriptions = seriesDescriptions(workspaceId, transaction.description);
+  const inList = descriptions.map(() => "?").join(", ");
   const merchantRows = db
     .prepare(
       `${TRANSACTION_LIST_SELECT}
-       WHERE t.workspace_id = ? AND t.description = ?
+       WHERE t.workspace_id = ? AND t.description IN (${inList})
        ORDER BY t.date DESC, t.id DESC
        LIMIT ?`
     )
-    .all(workspaceId, transaction.description, HISTORY_ROW_LIMIT)
+    .all(workspaceId, ...descriptions, HISTORY_ROW_LIMIT)
     .map(mapTransactionRow);
   const { count } = db
     .prepare(
-      "SELECT COUNT(*) AS count FROM transactions WHERE workspace_id = ? AND description = ?"
+      `SELECT COUNT(*) AS count FROM transactions WHERE workspace_id = ? AND description IN (${inList})`
     )
-    .get(workspaceId, transaction.description) as { count: number };
+    .get(workspaceId, ...descriptions) as { count: number };
 
   return {
     transaction,
     plan: transaction.type === "installments" ? getInstallmentPlan(workspaceId, transaction) : null,
     merchant: { transactions: merchantRows, count },
   };
+}
+
+/** This description plus any that differ from it only by a running reference. */
+function seriesDescriptions(workspaceId: number, description: string): string[] {
+  if (!mayHaveSeries(description)) return [description];
+  const all = getDb()
+    .prepare("SELECT DISTINCT description FROM transactions WHERE workspace_id = ?")
+    .pluck()
+    .all(workspaceId) as string[];
+  const matches = all.filter((d) => d !== description && isSameSeries(description, d));
+  // SQLite caps bound parameters; a series this long is not a payee anyway.
+  return [description, ...matches.slice(0, 500)];
 }
 
 /**
@@ -955,6 +991,47 @@ export function setTransactionKind(
        WHERE workspace_id = ? AND id = ?`
     )
     .run(kind, workspaceId, id);
+}
+
+/**
+ * Trims, and turns blank into null so "no name" is one state. A name is one
+ * line; a note keeps its line breaks.
+ */
+function cleanText(value: string | null | undefined, max: number, multiline = false): string | null {
+  const raw = value ?? "";
+  const v = (multiline ? raw.replace(/[ \t]+/g, " ") : raw.replace(/\s+/g, " ")).trim().slice(0, max);
+  return v === "" ? null : v;
+}
+
+export const DISPLAY_NAME_MAX = 120;
+export const NOTE_MAX = 1000;
+
+/** Sets the user's name and/or note on rows. Fields left undefined are kept. */
+export function setTransactionText(
+  workspaceId: number,
+  ids: number[],
+  fields: { displayName?: string | null; note?: string | null }
+): number {
+  const sets: string[] = [];
+  const values: (string | null)[] = [];
+  if (fields.displayName !== undefined) {
+    sets.push("display_name = ?");
+    values.push(cleanText(fields.displayName, DISPLAY_NAME_MAX));
+  }
+  if (fields.note !== undefined) {
+    sets.push("note = ?");
+    values.push(cleanText(fields.note, NOTE_MAX, true));
+  }
+  if (sets.length === 0 || ids.length === 0) return 0;
+  const stmt = getDb().prepare(
+    `UPDATE transactions SET ${sets.join(", ")}, updated_at = datetime('now')
+     WHERE workspace_id = ? AND id = ?`
+  );
+  let changed = 0;
+  getDb().transaction(() => {
+    for (const id of ids) changed += stmt.run(...values, workspaceId, id).changes;
+  })();
+  return changed;
 }
 
 export function setTransactionNeedsReview(

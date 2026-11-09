@@ -51,7 +51,8 @@ export async function POST(request: Request) {
     }
   }
 
-  for (const key of passwordKeys) {
+  // A paused bank can't sign in anyway, so it may be saved for imports only.
+  for (const key of info?.syncPaused ? [] : passwordKeys) {
     if (!merged[key]) {
       return NextResponse.json(
         { success: false, message: `Missing required field: ${key}` },

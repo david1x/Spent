@@ -13,6 +13,7 @@ import {
   History,
   Minus,
   MoreHorizontal,
+  Pencil,
   Tag,
   X,
 } from "lucide-react";
@@ -39,6 +40,7 @@ import {
   setTransactionKind,
   trackAsSubscription,
   updateTransactionCategory,
+  updateTransactionText,
 } from "@/lib/api";
 import { translateCategoryName } from "@/lib/i18n-data";
 import { AccountMark } from "@/components/transactions/transaction-source-cell";
@@ -53,6 +55,11 @@ import {
 } from "@/components/transactions/sortable-table-head";
 import { INCOME_INK } from "@/components/transactions/summary-strip";
 import { PaymentHistorySheet } from "@/components/transactions/payment-history-sheet";
+import {
+  TransactionTextDialog,
+  type TransactionTextValues,
+} from "@/components/transactions/transaction-text-dialog";
+import { isRenamed, transactionName } from "@/lib/transaction-name";
 import type { RecurringCadence } from "@/lib/insights-types";
 
 /** Frequencies offered when tracking a transaction as a subscription, most common first. */
@@ -162,10 +169,20 @@ export function TransactionsTable({
   const t = useTranslations("transactions");
   const tCat = useTranslations("categoriesSeeded");
   const locale = useLocale() as Locale;
-  const queryClient = useQueryClient();
-  const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const {
+    actions,
+    updatingId,
+    categoriesFor,
+    invalidateAll,
+    historyId,
+    setHistoryId,
+    editingTxn,
+    setEditingTxn,
+    saveText,
+    expenseCategories,
+    incomeCategories,
+  } = useTransactionRowActions();
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [historyId, setHistoryId] = useState<number | null>(null);
   const [selection, setSelection] = useState<{ key: string; ids: number[] }>({
     key: selectionKey,
     ids: [],
@@ -173,23 +190,6 @@ export function TransactionsTable({
   const totalPages = Math.ceil(total / TRANSACTIONS_PAGE_SIZE);
   const grouped = sortField === "date";
 
-  const incomeCategoriesQuery = useQuery({
-    queryKey: ["categories", "income"],
-    queryFn: () => getCategories("income"),
-  });
-  const expenseCategoriesQuery = useQuery({
-    queryKey: ["categories", "expense"],
-    queryFn: () => getCategories("expense"),
-  });
-  const incomeCategories = incomeCategoriesQuery.data ?? [];
-  const expenseCategories = expenseCategoriesQuery.data ?? [];
-
-  const categoriesFor = (txn: TransactionWithCategory): Category[] =>
-    txn.chargedAmount > 0 ? incomeCategories : expenseCategories;
-  const categoryNameFor = (id: number): string => {
-    const cat = [...expenseCategories, ...incomeCategories].find((c) => c.id === id);
-    return cat ? translateCategoryName(cat.name, tCat) : "";
-  };
 
   const selectedIdSet = new Set(selection.key === selectionKey ? selection.ids : []);
   const selectedRows = transactions.filter((r) => selectedIdSet.has(r.id));
@@ -205,85 +205,6 @@ export function TransactionsTable({
     );
   const toggleAll = () =>
     setSelectedIds(allOnPageSelected ? [] : transactions.map((r) => r.id));
-
-  const invalidateAll = () => {
-    for (const key of [
-      "transactions",
-      "summary",
-      "transactions-summary",
-      "home",
-      "categories",
-      "excluded-merchants",
-    ]) {
-      queryClient.invalidateQueries({ queryKey: [key] });
-    }
-  };
-
-  const runRowAction = async (txnId: number, action: () => Promise<unknown>) => {
-    setUpdatingId(txnId);
-    try {
-      await action();
-      invalidateAll();
-      return true;
-    } catch (err) {
-      toast.error(err instanceof Error && err.message ? err.message : t("actionFailed"));
-      return false;
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
-  const actions: RowActions = {
-    openHistory: (txn) => setHistoryId(txn.id),
-    trackSubscription: (txn, cadence) =>
-      void trackAsSubscription(txn.id, cadence)
-        .then(() => {
-          queryClient.invalidateQueries({ queryKey: ["insights"] });
-          toast.success(t("trackedToast", { merchant: txn.description, cadence: t(`trackCadence.${cadence}`) }));
-        })
-        .catch(() => toast.error(t("actionFailed"))),
-    changeCategory: (txn, categoryId) =>
-      void (async () => {
-        let others = 0;
-        const ok = await runRowAction(txn.id, async () => {
-          const res = await updateTransactionCategory(txn.id, categoryId);
-          others = res.sameMerchantCount ?? 0;
-        });
-        if (!ok || others === 0) return;
-        const name = categoryNameFor(categoryId);
-        toast(t("applyToMerchantPrompt", { count: others, merchant: txn.description, category: name }), {
-          duration: 10_000,
-          action: {
-            label: t("applyToMerchantAction", { count: others }),
-            onClick: () =>
-              void runRowAction(txn.id, async () => {
-                const res = await updateTransactionCategory(txn.id, categoryId, true);
-                toast.success(t("applyToMerchantDone", { count: res.applied, merchant: txn.description }));
-              }),
-          },
-        });
-      })(),
-    approve: (txn) =>
-      void runRowAction(txn.id, () => approveTransactionCategory(txn.id)),
-    changeKind: (txn, kind) =>
-      void runRowAction(txn.id, () => setTransactionKind(txn.id, kind)),
-    toggleExcluded: async (txn, alwaysForMerchant = false) => {
-      const next = !txn.isExcluded;
-      const ok = await runRowAction(txn.id, () =>
-        setTransactionExcluded(txn.id, next, alwaysForMerchant)
-      );
-      if (!ok) return;
-      if (next) {
-        toast.success(
-          alwaysForMerchant
-            ? t("excludeMerchantToast", { merchant: txn.description })
-            : t("excludeToast")
-        );
-      } else {
-        toast.success(t("includeToast"));
-      }
-    },
-  };
 
   const runBulk = async (
     rows: TransactionWithCategory[],
@@ -558,12 +479,217 @@ export function TransactionsTable({
         onClose={() => setHistoryId(null)}
         onShowAll={onShowMerchantEverywhere}
       />
+      <TransactionTextDialog txn={editingTxn} onClose={() => setEditingTxn(null)} onSave={saveText} />
     </section>
+  );
+}
+
+/**
+ * What a transaction row can do (change category, approve, count or not,
+ * kind, history, subscriptions), shared by the Transactions page and the
+ * budget sheet. Changing a category offers, in a toast, to apply it to the
+ * merchant's other transactions too.
+ */
+export function useTransactionRowActions() {
+  const t = useTranslations("transactions");
+  const tCat = useTranslations("categoriesSeeded");
+  const queryClient = useQueryClient();
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [historyId, setHistoryId] = useState<number | null>(null);
+
+  const incomeCategoriesQuery = useQuery({
+    queryKey: ["categories", "income"],
+    queryFn: () => getCategories("income"),
+  });
+  const expenseCategoriesQuery = useQuery({
+    queryKey: ["categories", "expense"],
+    queryFn: () => getCategories("expense"),
+  });
+  const incomeCategories = incomeCategoriesQuery.data ?? [];
+  const expenseCategories = expenseCategoriesQuery.data ?? [];
+
+  const categoriesFor = (txn: TransactionWithCategory): Category[] =>
+    txn.chargedAmount > 0 ? incomeCategories : expenseCategories;
+  const categoryNameFor = (id: number): string => {
+    const cat = [...expenseCategories, ...incomeCategories].find((c) => c.id === id);
+    return cat ? translateCategoryName(cat.name, tCat) : "";
+  };
+
+  const invalidateAll = () => {
+    for (const key of [
+      "transactions",
+      "summary",
+      "transactions-summary",
+      "home",
+      "categories",
+      "excluded-merchants",
+      "category-detail",
+      "insights",
+    ]) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  };
+
+  const runRowAction = async (txnId: number, action: () => Promise<unknown>) => {
+    setUpdatingId(txnId);
+    try {
+      await action();
+      invalidateAll();
+      return true;
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : t("actionFailed"));
+      return false;
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const [editingTxn, setEditingTxn] = useState<TransactionWithCategory | null>(null);
+
+  /** Saves a name and note, then offers the name to the merchant's other rows. */
+  const saveText = async (txn: TransactionWithCategory, values: TransactionTextValues): Promise<boolean> => {
+    let others = 0;
+    const ok = await runRowAction(txn.id, async () => {
+      const res = await updateTransactionText(txn.id, values);
+      others = res.sameMerchantCount ?? 0;
+    });
+    if (!ok) return false;
+    const named = values.displayName;
+    if (!named || named === (txn.displayName ?? null) || others === 0) {
+      toast.success(t("renameSaved"));
+      return true;
+    }
+    toast(t("renameApplyPrompt", { count: others, name: named }), {
+      duration: 10_000,
+      action: {
+        label: t("renameApplyAction", { count: others }),
+        onClick: () =>
+          void runRowAction(txn.id, async () => {
+            const res = await updateTransactionText(txn.id, { displayName: named }, true);
+            toast.success(t("renameApplyDone", { count: res.applied, name: named }));
+          }),
+      },
+    });
+    return true;
+  };
+
+  const actions: RowActions = {
+    openHistory: (txn) => setHistoryId(txn.id),
+    editText: (txn) => setEditingTxn(txn),
+    trackSubscription: (txn, cadence) =>
+      void trackAsSubscription(txn.id, cadence)
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["insights"] });
+          toast.success(t("trackedToast", { merchant: transactionName(txn), cadence: t(`trackCadence.${cadence}`) }));
+        })
+        .catch(() => toast.error(t("actionFailed"))),
+    changeCategory: (txn, categoryId) =>
+      void (async () => {
+        let others = 0;
+        const ok = await runRowAction(txn.id, async () => {
+          const res = await updateTransactionCategory(txn.id, categoryId);
+          others = res.sameMerchantCount ?? 0;
+        });
+        if (!ok || others === 0) return;
+        const name = categoryNameFor(categoryId);
+        toast(t("applyToMerchantPrompt", { count: others, merchant: transactionName(txn), category: name }), {
+          duration: 10_000,
+          action: {
+            label: t("applyToMerchantAction", { count: others }),
+            onClick: () =>
+              void runRowAction(txn.id, async () => {
+                const res = await updateTransactionCategory(txn.id, categoryId, true);
+                toast.success(t("applyToMerchantDone", { count: res.applied, merchant: transactionName(txn) }));
+              }),
+          },
+        });
+      })(),
+    approve: (txn) =>
+      void runRowAction(txn.id, () => approveTransactionCategory(txn.id)),
+    changeKind: (txn, kind) =>
+      void runRowAction(txn.id, () => setTransactionKind(txn.id, kind)),
+    toggleExcluded: async (txn, alwaysForMerchant = false) => {
+      const next = !txn.isExcluded;
+      const ok = await runRowAction(txn.id, () =>
+        setTransactionExcluded(txn.id, next, alwaysForMerchant)
+      );
+      if (!ok) return;
+      if (next) {
+        toast.success(
+          alwaysForMerchant
+            ? t("excludeMerchantToast", { merchant: transactionName(txn) })
+            : t("excludeToast")
+        );
+      } else {
+        toast.success(t("includeToast"));
+      }
+    },
+  };
+
+  return {
+    actions,
+    updatingId,
+    categoriesFor,
+    invalidateAll,
+    historyId,
+    setHistoryId,
+    editingTxn,
+    setEditingTxn,
+    saveText,
+    expenseCategories,
+    incomeCategories,
+  };
+}
+
+export type TransactionRowController = ReturnType<typeof useTransactionRowActions>;
+
+/**
+ * A compact, editable list of transactions (the phone-style rows), for side
+ * sheets. Same menus and toasts as the Transactions page.
+ */
+export function TransactionRowList({
+  transactions,
+  controller,
+}: {
+  transactions: TransactionWithCategory[];
+  controller: TransactionRowController;
+}) {
+  const t = useTranslations("transactions");
+  const tCat = useTranslations("categoriesSeeded");
+  const locale = useLocale() as Locale;
+  return (
+    <>
+      <ul>
+        {transactions.map((txn) => (
+          <MobileRow
+            key={txn.id}
+            txn={txn}
+            showDate
+            selected={false}
+            onToggleSelected={() => undefined}
+            selectable={false}
+            t={t}
+            tCat={tCat}
+            locale={locale}
+            actions={controller.actions}
+            categoriesFor={controller.categoriesFor}
+            updatingId={controller.updatingId}
+          />
+        ))}
+      </ul>
+      <PaymentHistorySheet transactionId={controller.historyId} onClose={() => controller.setHistoryId(null)} />
+      <TransactionTextDialog
+        txn={controller.editingTxn}
+        onClose={() => controller.setEditingTxn(null)}
+        onSave={controller.saveText}
+      />
+    </>
   );
 }
 
 interface RowActions {
   openHistory: (txn: TransactionWithCategory) => void;
+  editText: (txn: TransactionWithCategory) => void;
   trackSubscription: (txn: TransactionWithCategory, cadence: RecurringCadence) => void;
   changeCategory: (txn: TransactionWithCategory, categoryId: number) => void;
   approve: (txn: TransactionWithCategory) => void;
@@ -582,6 +708,8 @@ interface RowProps {
   actions: RowActions;
   categoriesFor: (txn: TransactionWithCategory) => Category[];
   updatingId: number | null;
+  /** False where there's nothing to select rows for (a side sheet). */
+  selectable?: boolean;
 }
 
 function DesktopRow({
@@ -614,7 +742,7 @@ function DesktopRow({
         <RowCheckbox
           checked={selected}
           onToggle={onToggleSelected}
-          label={t("selectRow", { merchant: txn.description })}
+          label={t("selectRow", { merchant: transactionName(txn) })}
         />
       </td>
       {showDate ? (
@@ -720,6 +848,7 @@ function MobileRow({
   actions,
   categoriesFor,
   updatingId,
+  selectable = true,
 }: RowProps) {
   const reason = notCountedReason(txn);
   const busy = updatingId === txn.id;
@@ -732,13 +861,15 @@ function MobileRow({
         busy && "opacity-60"
       )}
     >
-      <div className="pt-0.5">
-        <RowCheckbox
-          checked={selected}
-          onToggle={onToggleSelected}
-          label={t("selectRow", { merchant: txn.description })}
-        />
-      </div>
+      {selectable ? (
+        <div className="pt-0.5">
+          <RowCheckbox
+            checked={selected}
+            onToggle={onToggleSelected}
+            label={t("selectRow", { merchant: transactionName(txn) })}
+          />
+        </div>
+      ) : null}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-3">
           <button
@@ -749,10 +880,15 @@ function MobileRow({
               reason !== null && "text-muted-foreground"
             )}
           >
-            <bdi>{txn.description}</bdi>
+            <bdi>{transactionName(txn)}</bdi>
           </button>
           <AmountText txn={txn} muted={reason !== null} locale={locale} compact />
         </div>
+        {txn.note || isRenamed(txn) ? (
+          <div className="mt-0.5 truncate text-xs text-muted-foreground" title={txn.note ?? txn.description}>
+            <bdi>{txn.note ?? txn.description}</bdi>
+          </div>
+        ) : null}
         <div className="mt-1.5 flex min-w-0 items-center gap-2">
           <CategoryMenu
             txn={txn}
@@ -818,7 +954,7 @@ function ApproveButton({
       type="button"
       onClick={() => actions.approve(txn)}
       disabled={disabled}
-      aria-label={t("rowApproveLabel", { merchant: txn.description })}
+      aria-label={t("rowApproveLabel", { merchant: transactionName(txn) })}
       title={t("rowApproveTooltip")}
       className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[11.5px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
     >
@@ -841,6 +977,8 @@ function MerchantText({
   muted: boolean;
 }) {
   const details: string[] = [];
+  if (txn.note) details.push(txn.note);
+  if (isRenamed(txn)) details.push(txn.description);
   if (txn.memo && txn.memo.trim() !== "") details.push(txn.memo.trim());
   if (txn.type === "installments" && txn.installmentNumber && txn.installmentTotal) {
     details.push(
@@ -853,7 +991,7 @@ function MerchantText({
         className={cn("truncate font-medium", muted && "text-muted-foreground")}
         title={txn.description}
       >
-        <bdi>{txn.description}</bdi>
+        <bdi>{transactionName(txn)}</bdi>
       </span>
       {details.length > 0 ? (
         <span
@@ -1072,6 +1210,10 @@ function RowMoreMenu({
         <MoreHorizontal className="h-4 w-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuItem onClick={() => actions.editText(txn)}>
+          <Pencil className="h-3.5 w-3.5" />
+          {t("renameAction")}
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => actions.openHistory(txn)}>
           <History className="h-3.5 w-3.5" />
           {t("historyOpen")}

@@ -15,6 +15,10 @@ import type {
   TransactionListAggregates,
   CardAccount,
   RoutedInCard,
+  LoginCard,
+  SpendingTrend,
+  ImportRow,
+  ImportResult,
 } from "./types";
 import type { InsightsPayload, RecurringCadence } from "./insights-types";
 import { getActiveWorkspaceIdSync } from "./workspace-store";
@@ -423,6 +427,11 @@ export function deleteExcludedMerchantRule(id: number) {
   });
 }
 
+export function getSpendingTrend(params: { from: string; to: string }) {
+  const searchParams = new URLSearchParams({ from: params.from, to: params.to });
+  return fetchJSON<SpendingTrend>(`/api/summary/trend?${searchParams}`);
+}
+
 export function getSummary(params: {
   from: string;
   to: string;
@@ -459,6 +468,52 @@ export function updateTransactionCategory(id: number, categoryId: number, applyT
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ categoryId, applyToMerchant }),
+  });
+}
+
+/**
+ * Sets the user's name and/or note on a transaction (null clears it). With
+ * `applyNameToMerchant`, the name goes on the merchant's other rows too;
+ * otherwise `sameMerchantCount` says how many there are, to offer it.
+ */
+/** The cards under a card login, with whether each syncs and where it goes. */
+export function listLoginCards(credentialId: number) {
+  return fetchJSON<LoginCard[]>(`/api/integrations/${credentialId}/card-list`);
+}
+
+/** The quick card check: signs in and reads the card list. Rejects with the reason. */
+export async function checkLoginCards(credentialId: number): Promise<LoginCard[]> {
+  const res = await fetch(
+    `/api/integrations/${credentialId}/card-list`,
+    withWorkspaceHeader({ method: "POST" })
+  );
+  const body = (await res.json().catch(() => null)) as LoginCard[] | { message?: string } | null;
+  if (!res.ok || !Array.isArray(body)) {
+    throw new Error((body && !Array.isArray(body) && body.message) || "Couldn't read the card list.");
+  }
+  return body;
+}
+
+export function updateLoginCard(
+  credentialId: number,
+  change: { accountNumber: string; syncEnabled?: boolean; workspaceId?: number }
+) {
+  return fetchJSON<LoginCard[]>(`/api/integrations/${credentialId}/card-list`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(change),
+  });
+}
+
+export function updateTransactionText(
+  id: number,
+  fields: { displayName?: string | null; note?: string | null },
+  applyNameToMerchant = false
+) {
+  return fetchJSON<{ success: boolean; applied: number; sameMerchantCount: number }>(`/api/transactions/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...fields, applyNameToMerchant }),
   });
 }
 
@@ -594,6 +649,15 @@ export function setBudgetModesBulk(budgetedIds: number[]) {
 
 export function listIntegrations() {
   return fetchJSON<Integration[]>("/api/integrations");
+}
+
+/** Rows from a bank's exported file, mapped client-side, saved under one login. */
+export function importTransactionsFile(credentialId: number, rows: ImportRow[]) {
+  return fetchJSON<ImportResult>(`/api/integrations/${credentialId}/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows }),
+  });
 }
 
 export interface DeleteTransactionsResult {
@@ -753,7 +817,9 @@ export interface SyncProgressEvent {
 
 export function startSync(
   credentialId: number | undefined,
-  onEvent: (event: SyncProgressEvent) => void
+  onEvent: (event: SyncProgressEvent) => void,
+  /** With a credential: read only these of its cards. */
+  cards?: string[]
 ): { cancel: () => void } {
   const controller = new AbortController();
 
@@ -765,7 +831,7 @@ export function startSync(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
-            credentialId != null ? { credentialId } : {}
+            credentialId != null ? { credentialId, ...(cards?.length ? { cards } : {}) } : {}
           ),
           signal: controller.signal,
         })

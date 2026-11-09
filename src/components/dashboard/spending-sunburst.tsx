@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BudgetDetailSheet } from "./budget-detail-sheet";
 import { formatWhole } from "@/components/home/home-format";
+import { translateCategoryName } from "@/lib/i18n-data";
 import type { CategoryWithData } from "@/lib/types";
 import type { Locale } from "@/i18n/routing";
 
@@ -241,12 +242,18 @@ export function SpendingSunburst({
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
+  const tCat = useTranslations("categoriesSeeded");
   const { groups, total } = useMemo(
     () =>
-      buildGroups(categories, t("sunburstOther"), (name) =>
-        t("sunburstMoreIn", { name })
+      buildGroups(
+        categories.map((c) => ({
+          ...c,
+          categoryName: translateCategoryName(c.categoryName, tCat),
+        })),
+        t("sunburstOther"),
+        (name) => t("sunburstMoreIn", { name })
       ),
-    [categories, t]
+    [categories, t, tCat]
   );
   const arcs = useMemo(() => layoutArcs(groups, total), [groups, total]);
 
@@ -284,7 +291,7 @@ export function SpendingSunburst({
   const maxGroup = groups[0]?.amount ?? 0;
 
   return (
-    <section className="rounded-3xl border border-border bg-card p-5 sm:p-6 md:p-8">
+    <section className="@container flex flex-col rounded-3xl border border-border bg-card p-5 sm:p-6 md:p-8">
       <div className="mb-6">
         <h2 className="font-serif text-2xl">{t("sunburstTitle")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -293,7 +300,7 @@ export function SpendingSunburst({
       </div>
 
       {loading ? (
-        <div className="grid items-center gap-8 md:grid-cols-[minmax(0,300px)_minmax(0,1fr)] lg:gap-12">
+        <div className="grid flex-1 content-center items-center gap-8 @lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)] @3xl:grid-cols-[minmax(0,300px)_minmax(0,1fr)] @3xl:gap-12">
           <Skeleton className="mx-auto aspect-square w-full max-w-[300px] rounded-full" />
           <div className="space-y-4">
             {[1, 2, 3, 4].map((i) => (
@@ -322,7 +329,7 @@ export function SpendingSunburst({
           </p>
         </div>
       ) : (
-        <div className="grid items-center gap-8 md:grid-cols-[minmax(0,300px)_minmax(0,1fr)] lg:gap-12">
+        <div className="grid flex-1 content-center items-center gap-8 @lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)] @3xl:grid-cols-[minmax(0,300px)_minmax(0,1fr)] @3xl:gap-12">
           <div
             className="relative mx-auto aspect-square w-full max-w-[300px]"
             onMouseLeave={() => setActiveKey(null)}
