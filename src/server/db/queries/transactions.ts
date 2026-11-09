@@ -10,6 +10,7 @@ import { isSameSeries, mayHaveSeries } from "../../lib/description-series";
 import { normalizeCurrency } from "@/lib/currency";
 import { estimateIlsCharge, needsIlsEstimate } from "../../lib/fx-estimate";
 import { refreshEstimatedCharges } from "../../lib/fx-rates";
+import { MAX_SPREAD_MONTHS } from "../spend-view";
 import type {
   TransactionWithCategory,
   MonthlySummary,
@@ -518,11 +519,11 @@ export function getMonthlySummary(
 ): MonthlySummary[] {
   return getDb()
     .prepare(
-      `SELECT strftime('%Y-%m', date) as month,
+      `SELECT strftime('%Y-%m', date, 'localtime') as month,
               SUM(ABS(charged_amount)) as amount
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ?
-         AND date >= date('now', '-' || ? || ' months')
+         AND date(date, 'localtime') >= date('now', 'localtime', 'start of month', '-' || ? || ' months')
          AND status = 'completed'
          AND kind = 'expense'
          AND ${countedSql()}
@@ -543,7 +544,7 @@ export function getTopMerchants(
       `SELECT description as name,
               SUM(ABS(charged_amount)) as amount,
               COUNT(*) as count
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense'
          AND ${countedSql()}
        GROUP BY description
@@ -566,7 +567,7 @@ export function getCategoryBreakdown(
          COALESCE(c.color, '#B5B3AC') as color,
          SUM(ABS(t.charged_amount)) as amount,
          COUNT(*) as count
-       FROM transactions t
+       FROM spend_rows t
        LEFT JOIN categories c ON t.category_id = c.id
        WHERE t.workspace_id = ? AND date(t.date, 'localtime') >= ? AND date(t.date, 'localtime') <= ? AND t.status = 'completed' AND t.kind = 'expense'
          AND ${countedSql("t")}
@@ -592,7 +593,7 @@ export function getCategorySpendInRange(
       `SELECT category_id as categoryId,
               SUM(ABS(charged_amount)) as amount,
               COUNT(*) as count
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense' AND category_id IS NOT NULL
          AND ${countedSql()}
        GROUP BY category_id`
@@ -617,7 +618,7 @@ export function getTopMerchantPerCategory(
        FROM (
          SELECT category_id, description, SUM(ABS(charged_amount)) as amount,
                 ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY SUM(ABS(charged_amount)) DESC) as rn
-         FROM transactions
+         FROM spend_rows
          WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense' AND category_id IS NOT NULL
            AND ${countedSql()}
          GROUP BY category_id, description
@@ -648,7 +649,7 @@ export function getCategorySpendByDay(
        SELECT days.d as date,
               COALESCE(SUM(ABS(t.charged_amount)), 0) as amount
        FROM days
-       LEFT JOIN transactions t
+       LEFT JOIN spend_rows t
          ON date(t.date, 'localtime') = days.d
          AND t.workspace_id = ?
          AND t.category_id = ?
@@ -680,7 +681,7 @@ export function getTopMerchantsForCategory(
       `SELECT description as merchant,
               SUM(ABS(charged_amount)) as amount,
               COUNT(*) as count
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ? AND category_id = ?
          AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
          AND status = 'completed'
@@ -702,7 +703,7 @@ export function getPeriodTotal(
   const row = getDb()
     .prepare(
       `SELECT COALESCE(SUM(ABS(charged_amount)), 0) as total
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense'
          AND ${countedSql()}`
     )
@@ -715,7 +716,7 @@ export function getIncomeTotal(workspaceId: number, from: string, to: string): n
   const row = getDb()
     .prepare(
       `SELECT COALESCE(SUM(charged_amount), 0) as total
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
          AND status = 'completed' AND kind != 'transfer' AND charged_amount > 0
          AND ${countedSql()}`
@@ -732,7 +733,7 @@ export function getPeriodCount(
   const row = getDb()
     .prepare(
       `SELECT COUNT(*) as count
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ? AND status = 'completed' AND kind = 'expense'
          AND ${countedSql()}`
     )
@@ -769,6 +770,7 @@ interface TransactionRow {
   is_excluded: number;
   charged_estimated?: number | null;
   charged_by_user?: number | null;
+  spread_months?: number | null;
   created_at: string;
   updated_at: string;
   category_name?: string | null;
@@ -822,6 +824,7 @@ function mapTransactionRow(row: unknown): TransactionWithCategory {
     isExcluded: r.is_excluded === 1,
     chargedEstimated: r.charged_estimated === 1,
     chargedByUser: r.charged_by_user === 1,
+    ...(r.spread_months != null && r.spread_months >= 2 ? { spreadMonths: r.spread_months } : {}),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     categoryName: r.category_name ?? null,
@@ -1021,6 +1024,37 @@ export const DISPLAY_NAME_MAX = 120;
 export const NOTE_MAX = 1000;
 
 /** Sets the user's name and/or note on rows. Fields left undefined are kept. */
+export class SpreadError extends Error {}
+
+/**
+ * Count a payment in equal parts over `months` months, starting with the
+ * month it was paid (a year of dog food paid up front), or in full again with
+ * null. Card installments are already split by the bank, so they can't be.
+ * Returns false when there's no such transaction.
+ */
+export function setTransactionSpread(workspaceId: number, id: number, months: number | null): boolean {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT type, kind FROM transactions WHERE workspace_id = ? AND id = ?")
+    .get(workspaceId, id) as { type: string; kind: string } | undefined;
+  if (!row) return false;
+  if (months !== null) {
+    if (!Number.isInteger(months) || months < 2 || months > MAX_SPREAD_MONTHS) {
+      throw new SpreadError(`Spread it over 2 to ${MAX_SPREAD_MONTHS} months.`);
+    }
+    if (row.type === "installments") {
+      throw new SpreadError("Installments are already split by the card company.");
+    }
+    if (row.kind === "transfer") {
+      throw new SpreadError("Transfers don't count as spending, so there's nothing to spread.");
+    }
+  }
+  db.prepare(
+    "UPDATE transactions SET spread_months = ?, updated_at = datetime('now') WHERE workspace_id = ? AND id = ?"
+  ).run(months, workspaceId, id);
+  return true;
+}
+
 export class ChargedAmountError extends Error {}
 
 /**
@@ -1196,6 +1230,35 @@ export interface TransactionsSummaryParams {
   accounts?: string[];
 }
 
+/**
+ * Payments spread over months (spread_months) that were paid outside the
+ * range but have a monthly part inside it. A category's month lists them next
+ * to that month's own transactions, so its total can be traced back.
+ */
+export function getSpreadTransactionsCovering(
+  workspaceId: number,
+  categoryIds: number[],
+  from: string,
+  to: string
+): TransactionWithCategory[] {
+  if (categoryIds.length === 0) return [];
+  const placeholders = categoryIds.map(() => "?").join(",");
+  const rows = getDb()
+    .prepare(
+      `${TRANSACTION_LIST_SELECT}
+       WHERE t.workspace_id = ? AND t.spread_months >= 2 AND t.category_id IN (${placeholders})
+         AND ${scopeSql("t")}
+         AND NOT (date(t.date, 'localtime') BETWEEN ? AND ?)
+         AND EXISTS (
+           SELECT 1 FROM spend_rows s
+           WHERE s.id = t.id AND date(s.date, 'localtime') BETWEEN ? AND ?
+         )
+       ORDER BY t.date DESC, t.id DESC`
+    )
+    .all(workspaceId, ...categoryIds, from, to, from, to);
+  return rows.map(mapTransactionRow);
+}
+
 export function getTransactionsSummary(
   workspaceId: number,
   from: string,
@@ -1227,7 +1290,7 @@ export function getTransactionsSummary(
   const incomeAgg = db
     .prepare(
       `SELECT COALESCE(SUM(charged_amount), 0) as total, COUNT(*) as count
-       FROM transactions
+       FROM spend_rows
        WHERE ${baseWhere} AND charged_amount > 0`
     )
     .get(...baseValues) as { total: number; count: number };
@@ -1235,7 +1298,7 @@ export function getTransactionsSummary(
   const expenseAgg = db
     .prepare(
       `SELECT COALESCE(SUM(ABS(charged_amount)), 0) as total, COUNT(*) as count
-       FROM transactions
+       FROM spend_rows
        WHERE ${baseWhere} AND charged_amount < 0`
     )
     .get(...baseValues) as { total: number; count: number };
@@ -1270,7 +1333,7 @@ export function getTransactionsSummary(
       `SELECT description,
               SUM(ABS(charged_amount)) as total,
               COUNT(*) as count
-       FROM transactions
+       FROM spend_rows
        WHERE ${baseWhere} AND charged_amount < 0
        GROUP BY description
        ORDER BY total DESC

@@ -1,4 +1,5 @@
 import "server-only";
+import { accountTail } from "@/lib/account-tail";
 
 import { getDb } from "../index";
 import type {
@@ -24,7 +25,7 @@ export function getCashFlow(
   const income = db
     .prepare(
       `SELECT COALESCE(SUM(charged_amount), 0) as total
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
          AND status = 'completed' AND kind = 'income' AND ${countedSql()}`
     )
@@ -32,7 +33,7 @@ export function getCashFlow(
   const expenses = db
     .prepare(
       `SELECT COALESCE(SUM(ABS(charged_amount)), 0) as total
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
          AND status = 'completed' AND kind = 'expense' AND ${countedSql()}`
     )
@@ -85,7 +86,7 @@ export function getHistoricalTrend(
     // Money out only, like every other spending total: a refund (a positive
     // row) must not add to what was spent.
     `SELECT COALESCE(SUM(CASE WHEN charged_amount < 0 THEN -charged_amount ELSE 0 END), 0) as total
-     FROM transactions
+     FROM spend_rows
      WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
        AND status = 'completed' AND kind = 'expense' AND ${countedSql()}`
   );
@@ -137,12 +138,17 @@ export function getRecentTransactionsForHome(
     counted: number;
   }>;
   return rows.map(({ accountNumber, counted, ...row }) => {
-    const digits = (accountNumber ?? "").replace(/\D/g, "");
+    const tail = accountTail(accountNumber);
     return {
       ...row,
       providerName:
         BANK_PROVIDERS.find((p) => p.id === row.provider)?.name ?? row.provider,
-      accountLast4: digits.length >= 4 ? digits.slice(-4) : null,
+      accountLast4:
+        tail && (tail.digits.length >= 4 || tail.currency)
+          ? tail.currency
+            ? `${tail.digits} ${tail.currency}`
+            : tail.digits
+          : null,
       isCounted: counted === 1,
     };
   });
@@ -288,7 +294,7 @@ export function getCategorySnapshot(
     .prepare(
       `SELECT category_id as categoryId, description as merchant,
               SUM(ABS(charged_amount)) as amount, COUNT(*) as count
-       FROM transactions
+       FROM spend_rows
        WHERE workspace_id = ? AND date(date, 'localtime') >= ? AND date(date, 'localtime') <= ?
          AND status = 'completed' AND kind = 'expense'
          AND category_id IS NOT NULL AND ${countedSql()}

@@ -67,6 +67,11 @@ export interface TransactionWithCategory extends Transaction {
   chargedEstimated?: boolean;
   /** The user typed in the shekel amount (a foreign purchase); syncs keep it. */
   chargedByUser?: boolean;
+  /**
+   * Budgets and spending totals count this payment in equal parts over this
+   * many months, from the month it was paid. Absent: counted in full.
+   */
+  spreadMonths?: number;
   /** The user's own name for the row, shown instead of the bank's description. */
   displayName?: string | null;
   /** The user's note on the row. */

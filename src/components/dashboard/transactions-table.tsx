@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   ArrowLeftRight,
   CalendarClock,
+  CalendarRange,
   Check,
   Clock,
   Eye,
@@ -45,7 +46,9 @@ import {
   updateTransactionCategory,
   suggestCategory,
   updateTransactionText,
+  setTransactionSpread,
 } from "@/lib/api";
+import { SpreadDialog, canSpread } from "@/components/transactions/spread-dialog";
 import { translateCategoryName } from "@/lib/i18n-data";
 import { AccountMark } from "@/components/transactions/transaction-source-cell";
 import {
@@ -192,6 +195,9 @@ export function TransactionsTable({
     editingTxn,
     setEditingTxn,
     saveText,
+    spreadingTxn,
+    setSpreadingTxn,
+    saveSpread,
     budgetCategory,
     setBudgetCategory,
     expenseCategories,
@@ -497,6 +503,7 @@ export function TransactionsTable({
         onShowAll={onShowMerchantEverywhere}
       />
       <TransactionTextDialog txn={editingTxn} onClose={() => setEditingTxn(null)} onSave={saveText} />
+      <SpreadDialog txn={spreadingTxn} onClose={() => setSpreadingTxn(null)} onSave={saveSpread} />
       <BudgetEditDialog category={budgetCategory} onClose={() => setBudgetCategory(null)} />
     </section>
   );
@@ -568,6 +575,22 @@ export function useTransactionRowActions() {
 
   const [editingTxn, setEditingTxn] = useState<TransactionWithCategory | null>(null);
   const [budgetCategory, setBudgetCategory] = useState<{ id: number; name: string } | null>(null);
+  const [spreadingTxn, setSpreadingTxn] = useState<TransactionWithCategory | null>(null);
+
+  const saveSpread = async (txn: TransactionWithCategory, months: number | null): Promise<boolean> => {
+    const ok = await runRowAction(txn.id, () => setTransactionSpread(txn.id, months));
+    if (ok) {
+      toast.success(
+        months
+          ? t("spread.savedToast", {
+              months,
+              amount: formatCurrency(Math.abs(txn.chargedAmount) / months),
+            })
+          : t("spread.stoppedToast")
+      );
+    }
+    return ok;
+  };
 
   /** Saves a name and note, then offers the name to the merchant's other rows. */
   const saveText = async (txn: TransactionWithCategory, values: TransactionTextValues): Promise<boolean> => {
@@ -603,6 +626,7 @@ export function useTransactionRowActions() {
     withdrawRequest: (req) => requestActions.withdraw.mutate(req.id),
     openHistory: (txn) => setHistoryId(txn.id),
     editText: (txn) => setEditingTxn(txn),
+    spread: (txn) => setSpreadingTxn(txn),
     editBudget: (txn) =>
       txn.categoryId != null &&
       setBudgetCategory({ id: txn.categoryId, name: categoryNameFor(txn.categoryId) }),
@@ -677,6 +701,9 @@ export function useTransactionRowActions() {
     editingTxn,
     setEditingTxn,
     saveText,
+    spreadingTxn,
+    setSpreadingTxn,
+    saveSpread,
     budgetCategory,
     setBudgetCategory,
     expenseCategories,
@@ -726,6 +753,11 @@ export function TransactionRowList({
         onClose={() => controller.setEditingTxn(null)}
         onSave={controller.saveText}
       />
+      <SpreadDialog
+        txn={controller.spreadingTxn}
+        onClose={() => controller.setSpreadingTxn(null)}
+        onSave={controller.saveSpread}
+      />
       <BudgetEditDialog category={controller.budgetCategory} onClose={() => controller.setBudgetCategory(null)} />
     </>
   );
@@ -739,6 +771,8 @@ interface RowActions {
   withdrawRequest: (req: CategoryRequest) => void;
   openHistory: (txn: TransactionWithCategory) => void;
   editText: (txn: TransactionWithCategory) => void;
+  /** Count the payment over several months in budgets and totals. */
+  spread: (txn: TransactionWithCategory) => void;
   editBudget: (txn: TransactionWithCategory) => void;
   trackSubscription: (txn: TransactionWithCategory, cadence: RecurringCadence) => void;
   changeCategory: (txn: TransactionWithCategory, categoryId: number) => void;
@@ -1087,6 +1121,9 @@ function AmountText({
     txn.originalAmount !== txn.chargedAmount
       ? formatCurrency(txn.originalAmount, txn.originalCurrency, locale)
       : null;
+  const spreadPart = txn.spreadMonths
+    ? formatCurrency(Math.abs(txn.chargedAmount) / txn.spreadMonths, "ILS", locale)
+    : "";
   return (
     <span className="inline-flex shrink-0 flex-col items-end">
       <span
@@ -1107,6 +1144,15 @@ function AmountText({
       {foreign && !compact ? (
         <span className="text-[11px] tabular-nums text-muted-foreground">
           <bdi>{foreign}</bdi>
+        </span>
+      ) : null}
+      {txn.spreadMonths ? (
+        // Shown even in compact rows: it's why the budget counts less this month.
+        <span
+          className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
+          title={t("spread.row", { months: txn.spreadMonths, amount: spreadPart })}
+        >
+          <bdi>{t("spread.amountLine", { months: txn.spreadMonths, amount: spreadPart })}</bdi>
         </span>
       ) : null}
     </span>
@@ -1342,6 +1388,12 @@ function OwnerMoreItems({
           <DropdownMenuItem onClick={() => actions.editBudget(txn)}>
             <PiggyBank className="h-3.5 w-3.5" />
             {t("editCategoryBudget", { category: translateCategoryName(txn.categoryName, menu.tCat) })}
+          </DropdownMenuItem>
+        ) : null}
+        {canSpread(txn) ? (
+          <DropdownMenuItem onClick={() => actions.spread(txn)}>
+            <CalendarRange className="h-3.5 w-3.5" />
+            {txn.spreadMonths ? t("spread.actionChange") : t("spread.action")}
           </DropdownMenuItem>
         ) : null}
         {txn.chargedAmount < 0 && txn.type !== "installments" ? (

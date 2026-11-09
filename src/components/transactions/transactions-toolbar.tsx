@@ -19,6 +19,7 @@ import { BANK_PROVIDERS } from "@/lib/types";
 import type { Category, Integration, TransactionListAggregates } from "@/lib/types";
 import type { TransactionKindFilter } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { accountTailText } from "@/lib/account-tail";
 
 export type TransactionSegment = Extract<
   TransactionKindFilter,
@@ -92,7 +93,7 @@ export function TransactionsToolbar({
         integration.accounts.length > 1 || info?.kind === "card"
           ? integration.accounts.map((a) => ({
               key: `${integration.id}:${a.accountNumber}`,
-              last4: a.accountNumber.slice(-4),
+              last4: accountTailText(a.accountNumber) ?? a.accountNumber.slice(-4),
               count: a.transactionCount,
             }))
           : [];

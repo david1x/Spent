@@ -3,6 +3,7 @@ import {
   queryTransactions,
   getCategorySpendByDay,
   getTopMerchantsForCategory,
+  getSpreadTransactionsCovering,
 } from "@/server/db/queries/transactions";
 import { getAllCategories } from "@/server/db/queries/categories";
 import { getAllBudgets, getAutoBudgetAverage } from "@/server/db/queries/budgets";
@@ -142,7 +143,7 @@ async function handleGET(
 
   const filterKind = category.kind === "income" ? "income" : "expense";
 
-  const { transactions, total: transactionCount } = queryTransactions(
+  const { transactions: ownTransactions, total: transactionCount } = queryTransactions(
     workspaceId,
     {
       from,
@@ -154,6 +155,13 @@ async function handleGET(
       limit: 50,
     }
   );
+
+  // A payment spread over months shows in every month it's counted in, after
+  // that month's own transactions (newest first among them).
+  const transactions = [
+    ...ownTransactions,
+    ...getSpreadTransactionsCovering(workspaceId, targetIds, from, to),
+  ];
 
   const needsReviewTransactions = transactions.filter((t) => t.needsReview);
 

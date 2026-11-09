@@ -5,6 +5,7 @@ import { ProviderBadge } from "@/components/setup/provider-badge";
 import { translateProviderName } from "@/lib/i18n-data";
 import { BANK_PROVIDERS } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { accountTailText } from "@/lib/account-tail";
 
 interface TransactionSourceCellProps {
   provider: string;
@@ -63,11 +64,9 @@ export function TransactionSourceCell({
   );
 }
 
-/** Last four digits of a bank account or card number, or null when there are none. */
+/** Last four digits, plus the currency of a foreign-currency account ("6789 USD"). */
 export function lastFourDigits(accountNumber: string | null | undefined): string | null {
-  if (!accountNumber) return null;
-  const digits = accountNumber.replace(/\D/g, "");
-  return digits.length > 0 ? digits.slice(-4) : null;
+  return accountTailText(accountNumber);
 }
 
 interface AccountMarkProps {

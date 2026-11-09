@@ -540,6 +540,15 @@ export function updateTransactionText(
   });
 }
 
+/** Count a payment over several months in budgets and totals; null counts it in full again. */
+export function setTransactionSpread(id: number, months: number | null) {
+  return fetchJSON<{ success: boolean }>(`/api/transactions/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ spreadMonths: months }),
+  });
+}
+
 export interface CategoryChildBreakdown {
   id: number;
   name: string;

@@ -6,6 +6,8 @@ import {
   setTransactionText,
   setChargedAmount,
   ChargedAmountError,
+  setTransactionSpread,
+  SpreadError,
 } from "@/server/db/queries/transactions";
 import { recordMerchantCategory, sameMerchantTransactionIds } from "@/server/lib/merchant-memory";
 import { applyCategoryChange } from "@/server/lib/category-change";
@@ -49,9 +51,27 @@ export async function PATCH(
     note?: unknown;
     applyNameToMerchant?: unknown;
     chargedAmount?: unknown;
+    spreadMonths?: unknown;
   };
 
   const numericId = Number(id);
+
+  // Count the payment over several months (a number), or in full again (null).
+  if ("spreadMonths" in body) {
+    const months = body.spreadMonths;
+    if (months !== null && typeof months !== "number") {
+      return NextResponse.json({ error: "spreadMonths must be a number or null" }, { status: 400 });
+    }
+    try {
+      if (!setTransactionSpread(workspaceId, numericId, months)) {
+        return NextResponse.json({ error: "not found" }, { status: 404 });
+      }
+    } catch (err) {
+      if (err instanceof SpreadError) return NextResponse.json({ error: err.message }, { status: 400 });
+      throw err;
+    }
+    return NextResponse.json({ success: true });
+  }
 
   // A foreign purchase's shekel amount, typed in by the user (null: automatic).
   // Comes with the name and note from the same dialog, so it doesn't return.

@@ -415,7 +415,26 @@
     "amountAutoPending": "Goes back to the bank's amount, or the exchange-rate estimate until the bank has one, when you save.",
     "amountInvalid": "Enter an amount above zero.",
     "amountSetByYouHint": "You set this shekel amount.",
-    "editDescriptionForeign": "Give it a name you'll recognize, a note, and the exact shekel amount from your card bill. The bank's own text stays on record."
+    "editDescriptionForeign": "Give it a name you'll recognize, a note, and the exact shekel amount from your card bill. The bank's own text stays on record.",
+    "spread": {
+      "action": "Spread over months",
+      "actionChange": "Change the spread",
+      "title": "Spread over months",
+      "description": "Paid for several months at once, like a year of dog food? Budgets and spending will count an equal part each month, starting with the month you paid. The transaction itself stays as the bank shows it.",
+      "monthsLabel": "Number of months",
+      "presetsLabel": "Common choices",
+      "perMonth": "{amount} a month",
+      "range": "{from} to {to}, {months} months",
+      "invalid": "Choose 2 to {max} months.",
+      "stop": "Count it in full",
+      "cancel": "Cancel",
+      "save": "Spread it",
+      "saving": "Saving…",
+      "savedToast": "Counted as {amount} a month for {months} months",
+      "stoppedToast": "Counted in full again",
+      "amountLine": "{amount}/mo × {months}",
+      "row": "Spread: {amount}/month for {months} months"
+    }
   },
   "dashboard": {
     "syncing": "Syncing…",

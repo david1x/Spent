@@ -3,10 +3,18 @@ import "server-only";
 import Database from "better-sqlite3";
 import fs from "fs";
 import { runMigrations } from "./migrate";
+import { createSpendView, dropSpendView } from "./spend-view";
 import { DATA_DIR, DB_PATH } from "../lib/data-dir";
 import { refreshEstimatedCharges, seedFxRates } from "../lib/fx-rates";
 
 const DB_DIR = DATA_DIR;
+
+/** Migrations, with the spend_rows view out of the way while they run. */
+function migrate(db: Database.Database): void {
+  dropSpendView(db);
+  runMigrations(db);
+  createSpendView(db);
+}
 
 function createDatabase(): Database.Database {
   if (!fs.existsSync(DB_DIR)) {
@@ -18,7 +26,7 @@ function createDatabase(): Database.Database {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
 
-  runMigrations(db);
+  migrate(db);
   // Syncs run inside this process, so a run still "running" when the database
   // opens was cut off by a restart or crash. Left as is it would block moving
   // that bank and show as syncing forever.
@@ -54,7 +62,7 @@ export function getDb(): Database.Database {
   if (!globalThis._db) {
     globalThis._db = createDatabase();
   } else if (!migratedThisLoad) {
-    runMigrations(globalThis._db);
+    migrate(globalThis._db);
   }
   migratedThisLoad = true;
   return globalThis._db;
