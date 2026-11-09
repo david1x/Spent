@@ -10,6 +10,7 @@ import {
   Sparkles,
   Layers,
   ShieldAlert,
+  LockKeyhole,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +75,12 @@ const GROUPS: NavGroup[] = [
   {
     titleKey: "groupAdvanced",
     items: [
+      {
+        href: "/settings/security",
+        labelKey: "security",
+        Icon: LockKeyhole,
+        match: (p) => p.startsWith("/settings/security"),
+      },
       {
         href: "/settings/data",
         labelKey: "data",

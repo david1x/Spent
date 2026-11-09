@@ -150,7 +150,9 @@
     "spentSinceDate": "הוצאות מאז {date}",
     "lastPayCycle": "מחזור השכר הקודם",
     "trendExpandedHint": "העבירו את העכבר על חודש כדי לראות את הנתונים; לחיצה מציגה את העסקאות שלו.",
-    "paceTipTitle": "יום {day} מתוך {total}"
+    "paceTipTitle": "יום {day} מתוך {total}",
+    "editBudget": "עריכת התקציב של {name}",
+    "setBudget": "הגדרת תקציב"
   },
   "syncPill": {
     "noBanksConnected": "לא חוברו בנקים",
@@ -393,7 +395,8 @@
     "renameSaved": "נשמר",
     "renameApplyPrompt": "{count, plural, one {עוד תנועה אחת נראית מאותו מוטב.} other {עוד # תנועות נראות מאותו מוטב.}} לקרוא גם {count, plural, one {לה} other {להן}} {name}?",
     "renameApplyAction": "{count, plural, one {שינוי השם שלה} other {שינוי השם של כל ה־#}}",
-    "renameApplyDone": "{count, plural, one {עוד תנועה אחת נקראת עכשיו {name}} other {עוד # תנועות נקראות עכשיו {name}}}"
+    "renameApplyDone": "{count, plural, one {עוד תנועה אחת נקראת עכשיו {name}} other {עוד # תנועות נקראות עכשיו {name}}}",
+    "editCategoryBudget": "עריכת התקציב של {category}"
   },
   "dashboard": {
     "syncing": "מסנכרן…",
@@ -541,8 +544,14 @@
       "overBudgetShort": "מעל התקציב",
       "overBudgetLegend": "מעל התקציב החודשי של הקטגוריה",
       "showAll": "הצגת כל ה־{count}",
-      "showFewer": "הצגת פחות"
-    }
+      "showFewer": "הצגת פחות",
+      "gridBudget": "תקציב",
+      "gridSetBudget": "הגדרה",
+      "editBudget": "עריכת התקציב של {name}",
+      "gridBudgetTotal": "סך התקציבים החודשיים למעלה"
+    },
+    "editBudget": "עריכת התקציב של {name}",
+    "setBudget": "הגדרת תקציב"
   },
   "settings": {
     "pageTitle": "הגדרות",
@@ -558,7 +567,8 @@
       "bank": "חשבונות בנק",
       "ai": "ספק AI",
       "categories": "קטגוריות",
-      "data": "נתונים ופרטיות"
+      "data": "נתונים ופרטיות",
+      "security": "אבטחה"
     },
     "workspace": {
       "nameTitle": "שם סביבת העבודה",
@@ -895,7 +905,21 @@
     "aiSummaryClaude": "Claude (Anthropic)",
     "aiSummaryOllama": "Ollama · {model}",
     "aiSummaryManual": "סיווג ידני",
-    "aiSummaryOllamaFallback": "מקומי"
+    "aiSummaryOllamaFallback": "מקומי",
+    "welcome": {
+      "eyebrow": "ברוכים הבאים",
+      "title": "בואו נכין את Spent.",
+      "subtitle": "אפשר להתחיל מאפס עם הבנק, או להעביר הכל מגיבוי.",
+      "freshTitle": "התחלה מאפס",
+      "freshHint": "חיבור בנק או כרטיס, בחירת עוזר AI והגדרת תקציבים. בערך חמש דקות.",
+      "freshCta": "להגדרה",
+      "restoreChoiceTitle": "שחזור מגיבוי",
+      "restoreChoiceHint": "עוברים למחשב אחר או ל-Docker? מעבירים את העסקאות, התקציבים וחיבורי הבנק מקובץ גיבוי של Spent.",
+      "restoreCta": "בחירת גיבוי",
+      "restoreTitle": "שחזור מגיבוי",
+      "restoreSubtitle": "בוחרים את קובץ ה-‎.spentbackup ומקלידים את הסיסמה שנבחרה כשהגיבוי נוצר.",
+      "back": "חזרה"
+    }
   },
   "categoriesSeeded": {
     "Groceries": "מצרכים",
@@ -1450,5 +1474,131 @@
     "errorNoRows": "אין בקובץ הזה שורות.",
     "errorUnreadable": "לא הצלחנו לקרוא את הקובץ. נסו לייצא אותו שוב כ־CSV או ‎.xlsx‎.",
     "errorImport": "הייבוא נכשל."
+  },
+  "backup": {
+    "title": "גיבוי ושחזור",
+    "description": "הכול בקובץ אחד: תנועות, קטגוריות, תקציבים, הגדרות וחיבורי הבנקים השמורים, מוגן בסיסמה שתבחרו. כך מעבירים את Spent למחשב אחר או ל־Docker.",
+    "exportTitle": "הורדת גיבוי",
+    "exportHint": "אפשר לפתוח את הקובץ רק עם הסיסמה הזו.",
+    "password": "סיסמה",
+    "confirm": "הסיסמה שוב",
+    "tooShort": "לפחות {min} תווים.",
+    "mismatch": "הסיסמאות לא תואמות.",
+    "passwordWarning": "שמרו את הסיסמה במקום בטוח. בלעדיה אי אפשר לשחזר את הגיבוי, ואין דרך לשחזר אותה.",
+    "exportButton": "הורדת גיבוי",
+    "exporting": "מכין…",
+    "exportDone": "הגיבוי ירד. שמרו אותו במקום בטוח.",
+    "exportFailed": "לא הצלחנו ליצור גיבוי.",
+    "restoreTitle": "שחזור גיבוי",
+    "restoreHint": "מחליף את כל מה שיש ב־Spent הזה בגיבוי. מה שיש כאן עכשיו נשמר כעותק בתיקיית הנתונים.",
+    "file": "קובץ הגיבוי",
+    "replaceWarning": "ברור לי שזה מחליף את כל התנועות, ההגדרות וחיבורי הבנקים ב־Spent הזה.",
+    "restoreButton": "שחזור",
+    "restoring": "משחזר…",
+    "restoreDone": "שוחזר. טוען מחדש…",
+    "restoreFailed": "השחזור נכשל."
+  },
+  "auth": {
+    "errors": {
+      "invalid_credentials": "השם והסיסמה לא תואמים.",
+      "invalid_code": "הקוד לא עבד. כדאי לוודא שהשעה בטלפון נכונה ולהשתמש בקוד העדכני.",
+      "rate_limited": "יותר מדי ניסיונות. כדאי לחכות כמה דקות ולנסות שוב.",
+      "expired": "עבר יותר מדי זמן. מתחילים מחדש.",
+      "already_enabled": "הכניסה עם סיסמה כבר פעילה.",
+      "not_enabled": "הכניסה עם סיסמה לא פעילה.",
+      "weak_password": "סיסמה של 10 תווים לפחות.",
+      "invalid_username": "שם של עד 64 תווים.",
+      "signed_out": "יש להתחבר כדי להמשיך.",
+      "generic": "משהו השתבש. כדאי לנסות שוב."
+    },
+    "recovery": {
+      "copy": "העתקה",
+      "copied": "הועתק",
+      "download": "הורדה",
+      "fileHeader": "קודי שחזור של Spent. כל קוד מאפשר כניסה אחת במקום קוד מאפליקציית האימות."
+    },
+    "enroll": {
+      "stepAccount": "פרטי הכניסה",
+      "stepScan": "אפליקציית אימות",
+      "stepCodes": "קודי שחזור",
+      "username": "שם",
+      "password": "סיסמה",
+      "confirm": "הסיסמה שוב",
+      "tooShort": "לפחות {min} תווים.",
+      "mismatch": "הסיסמאות לא תואמות.",
+      "continue": "המשך",
+      "scanHint": "סורקים עם אפליקציית אימות (Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden ועוד) ומקלידים את הקוד בן 6 הספרות שמופיע בה.",
+      "qrAlt": "קוד QR לאפליקציית האימות",
+      "manualKey": "אי אפשר לסרוק? מזינים באפליקציה את המפתח הזה:",
+      "codeLabel": "קוד בן 6 ספרות",
+      "verify": "אימות והפעלה",
+      "back": "חזרה",
+      "codesHint": "אם הטלפון אובד, כל אחד מהקודים האלה מאפשר כניסה אחת. כדאי לשמור אותם במקום בטוח, לא על המחשב הזה. הם לא יוצגו שוב.",
+      "savedCheck": "שמרתי את קודי השחזור.",
+      "finish": "סיום"
+    },
+    "signIn": {
+      "username": "שם",
+      "password": "סיסמה",
+      "continue": "המשך",
+      "codeHint": "פותחים את אפליקציית האימות ומקלידים את הקוד בן 6 הספרות של Spent.",
+      "recoveryHint": "מקלידים אחד מקודי השחזור. כל קוד עובד פעם אחת.",
+      "codeLabel": "קוד בן 6 ספרות",
+      "recoveryLabel": "קוד שחזור",
+      "signIn": "כניסה",
+      "useRecovery": "שימוש בקוד שחזור",
+      "useApp": "שימוש באפליקציית האימות",
+      "startOver": "התחלה מחדש"
+    },
+    "screen": {
+      "signInTitle": "כניסה ל-Spent",
+      "signInHint": "שם וסיסמה, ואחר כך קוד מאפליקציית האימות.",
+      "createTitle": "יצירת פרטי כניסה",
+      "createHint": "ה-Spent הזה מוגדר לדרוש כניסה. לפני הכל בוחרים שם וסיסמה ומחברים אפליקציית אימות.",
+      "usedRecovery": "נכנסת עם קוד שחזור. {count, plural, =0 {לא נשארו קודים} one {נשאר קוד אחד} other {נשארו # קודים}}. אפשר ליצור חדשים בהגדרות, אבטחה.",
+      "continue": "המשך",
+      "lockedOut": "הטלפון וקודי השחזור אבדו? מי שמפעיל את השרת יכול לכבות את הכניסה עם npm run auth:reset."
+    },
+    "settings": {
+      "title": "אבטחה",
+      "description": "כניסה עם סיסמה ואפליקציית אימות, למקרה ש-Spent נגיש ממכשירים אחרים או מהאינטרנט.",
+      "offTitle": "הכניסה עם סיסמה כבויה",
+      "offHint": "כל מי שיכול לפתוח את הכתובת הזו רואה ומשנה הכל. זה בסדר על המחשב שלך. כדאי להפעיל כניסה לפני ש-Spent עובר לדומיין או נפתח לרשת.",
+      "turnOn": "הפעלת כניסה",
+      "enrollTitle": "הפעלת כניסה",
+      "enrollHint": "הכניסה תהיה עם שם, סיסמה וקוד בן 6 ספרות מאפליקציית אימות בטלפון.",
+      "turnedOn": "הכניסה פעילה. הדפדפן הזה מחובר.",
+      "onTitle": "הכניסה פעילה",
+      "onHint": "מחובר בתור {username}.",
+      "onSince": "פעילה מ-{date}.",
+      "signOut": "יציאה",
+      "recoveryTitle": "קודי שחזור",
+      "recoveryHint": "כל קוד מאפשר כניסה אחת כשהטלפון לא זמין.",
+      "recoveryLeft": "{count, plural, =0 {לא נשארו קודים} one {נשאר קוד אחד} other {נשארו # קודים}}",
+      "recoveryNew": "קודי שחזור חדשים",
+      "recoveryConfirmHint": "מקלידים קוד מאפליקציית האימות. קודי השחזור הנוכחיים יפסיקו לעבוד.",
+      "recoveryShownOnce": "כדאי לשמור אותם עכשיו. הם לא יוצגו שוב.",
+      "recoveryMake": "יצירת קודים חדשים",
+      "done": "סיום",
+      "sessionsTitle": "דפדפנים מחוברים",
+      "sessionsHint": "כל דפדפן נשאר מחובר 30 יום מהשימוש האחרון.",
+      "thisBrowser": "הדפדפן הזה",
+      "lastActive": "פעיל {when}",
+      "signOutOne": "ניתוק",
+      "signOutOthers": "ניתוק כל השאר",
+      "signedOutOthers": "{count, plural, =0 {לא היו דפדפנים אחרים מחוברים.} one {דפדפן אחד נותק.} other {# דפדפנים נותקו.}}",
+      "offCardTitle": "כיבוי הכניסה",
+      "offCardHint": "מוחק את הסיסמה, את החיבור לאפליקציית האימות ואת קודי השחזור, ומנתק את כל הדפדפנים.",
+      "turnOff": "כיבוי הכניסה",
+      "turnOffConfirmHint": "לאישור: הסיסמה וקוד מאפליקציית האימות.",
+      "password": "סיסמה",
+      "code": "קוד בן 6 ספרות",
+      "turnedOff": "הכניסה כבויה.",
+      "domainTitle": "העברת Spent לדומיין",
+      "domainHint": "כמה דברים שכדאי לדעת לפני ש-Spent נגיש מחוץ למחשב הזה.",
+      "domainHttps": "להגיש דרך HTTPS (פרוקסי הפוך כמו Caddy,‏ Traefik או nginx). עוגיות הכניסה מסומנות כמאובטחות כשהבקשה מגיעה ב-HTTPS.",
+      "domainRequired": "להגדיר בשרת SPENT_AUTH_REQUIRED=1, כדי שהתקנה חדשה תבקש פרטי כניסה לפני כל דבר אחר, עוד לפני ההגדרה.",
+      "domainReset": "ננעלת בחוץ? בשרת מריצים"
+    }
   }
 }

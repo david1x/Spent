@@ -14,6 +14,7 @@ import {
   Minus,
   MoreHorizontal,
   Pencil,
+  PiggyBank,
   Tag,
   X,
 } from "lucide-react";
@@ -60,6 +61,7 @@ import {
   type TransactionTextValues,
 } from "@/components/transactions/transaction-text-dialog";
 import { isRenamed, transactionName } from "@/lib/transaction-name";
+import { BudgetEditDialog } from "@/components/budget/budget-edit-popover";
 import type { RecurringCadence } from "@/lib/insights-types";
 
 /** Frequencies offered when tracking a transaction as a subscription, most common first. */
@@ -179,6 +181,8 @@ export function TransactionsTable({
     editingTxn,
     setEditingTxn,
     saveText,
+    budgetCategory,
+    setBudgetCategory,
     expenseCategories,
     incomeCategories,
   } = useTransactionRowActions();
@@ -480,6 +484,7 @@ export function TransactionsTable({
         onShowAll={onShowMerchantEverywhere}
       />
       <TransactionTextDialog txn={editingTxn} onClose={() => setEditingTxn(null)} onSave={saveText} />
+      <BudgetEditDialog category={budgetCategory} onClose={() => setBudgetCategory(null)} />
     </section>
   );
 }
@@ -545,6 +550,7 @@ export function useTransactionRowActions() {
   };
 
   const [editingTxn, setEditingTxn] = useState<TransactionWithCategory | null>(null);
+  const [budgetCategory, setBudgetCategory] = useState<{ id: number; name: string } | null>(null);
 
   /** Saves a name and note, then offers the name to the merchant's other rows. */
   const saveText = async (txn: TransactionWithCategory, values: TransactionTextValues): Promise<boolean> => {
@@ -576,6 +582,9 @@ export function useTransactionRowActions() {
   const actions: RowActions = {
     openHistory: (txn) => setHistoryId(txn.id),
     editText: (txn) => setEditingTxn(txn),
+    editBudget: (txn) =>
+      txn.categoryId != null &&
+      setBudgetCategory({ id: txn.categoryId, name: categoryNameFor(txn.categoryId) }),
     trackSubscription: (txn, cadence) =>
       void trackAsSubscription(txn.id, cadence)
         .then(() => {
@@ -636,6 +645,8 @@ export function useTransactionRowActions() {
     editingTxn,
     setEditingTxn,
     saveText,
+    budgetCategory,
+    setBudgetCategory,
     expenseCategories,
     incomeCategories,
   };
@@ -683,6 +694,7 @@ export function TransactionRowList({
         onClose={() => controller.setEditingTxn(null)}
         onSave={controller.saveText}
       />
+      <BudgetEditDialog category={controller.budgetCategory} onClose={() => controller.setBudgetCategory(null)} />
     </>
   );
 }
@@ -690,6 +702,7 @@ export function TransactionRowList({
 interface RowActions {
   openHistory: (txn: TransactionWithCategory) => void;
   editText: (txn: TransactionWithCategory) => void;
+  editBudget: (txn: TransactionWithCategory) => void;
   trackSubscription: (txn: TransactionWithCategory, cadence: RecurringCadence) => void;
   changeCategory: (txn: TransactionWithCategory, categoryId: number) => void;
   approve: (txn: TransactionWithCategory) => void;
@@ -1218,6 +1231,12 @@ function RowMoreMenu({
           <History className="h-3.5 w-3.5" />
           {t("historyOpen")}
         </DropdownMenuItem>
+        {txn.categoryId != null && txn.chargedAmount < 0 && txn.categoryName ? (
+          <DropdownMenuItem onClick={() => actions.editBudget(txn)}>
+            <PiggyBank className="h-3.5 w-3.5" />
+            {t("editCategoryBudget", { category: translateCategoryName(txn.categoryName, menu.tCat) })}
+          </DropdownMenuItem>
+        ) : null}
         {txn.chargedAmount < 0 && txn.type !== "installments" ? (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>

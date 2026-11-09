@@ -3,12 +3,11 @@ import "server-only";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-
-const KEY_PATH = path.join(process.cwd(), "data", ".encryption-key");
+import { keyPath } from "./data-dir";
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
 
-function assertKeyFileMode(stat: fs.Stats): void {
+function assertKeyFileMode(stat: fs.Stats, KEY_PATH: string): void {
   // POSIX-only. Windows NTFS ACLs don't map to mode bits meaningfully,
   // so skip there and rely on the default user profile permissions.
   if (process.platform === "win32") return;
@@ -23,13 +22,14 @@ function assertKeyFileMode(stat: fs.Stats): void {
 }
 
 function getOrCreateKey(): Buffer {
+  const KEY_PATH = keyPath();
   const dir = path.dirname(KEY_PATH);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
   if (fs.existsSync(KEY_PATH)) {
-    assertKeyFileMode(fs.statSync(KEY_PATH));
+    assertKeyFileMode(fs.statSync(KEY_PATH), KEY_PATH);
     return Buffer.from(fs.readFileSync(KEY_PATH, "utf-8").trim(), "hex");
   }
 
@@ -45,6 +45,16 @@ function getKey(): Buffer {
     cachedKey = getOrCreateKey();
   }
   return cachedKey;
+}
+
+/** The key file's contents (hex), creating the key if there is none yet. For backups. */
+export function readKeyHex(): string {
+  return getKey().toString("hex");
+}
+
+/** Forget the loaded key, so the next use reads the file again (after a restore). */
+export function resetKeyCache(): void {
+  cachedKey = null;
 }
 
 export interface EncryptedData {

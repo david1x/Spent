@@ -692,10 +692,10 @@ function BudgetStat({
           className="group mt-0.5 flex w-full cursor-pointer items-center gap-1.5 rounded-md text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           aria-label="Edit budget amount"
         >
-          <span className="font-serif text-xl tabular-nums">
-            {amount > 0 ? formatCurrency(amount) : "—"}
+          <span className={amount > 0 ? "font-serif text-xl tabular-nums" : "text-sm font-medium underline-offset-4 group-hover:underline"}>
+            {amount > 0 ? formatCurrency(amount) : "Set budget"}
           </span>
-          <Pencil className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+          <Pencil className="h-3 w-3 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
         </button>
       )}
       {!editing && isAuto && amount > 0 && (

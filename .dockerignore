@@ -1,0 +1,30 @@
+# Never send personal data or secrets into the image.
+data
+*.db
+*.db-*
+.encryption-key*
+*.spentbackup
+.env*
+!.env.example
+
+# Rebuilt inside the image.
+node_modules
+.next
+out
+build
+*.tsbuildinfo
+next-env.d.ts
+
+# Not needed to run the app.
+.git
+.github
+.claude
+.superpowers
+menubar
+website
+docs
+coverage
+*.log
+Spent.sln
+Dockerfile
+docker-compose*.yml

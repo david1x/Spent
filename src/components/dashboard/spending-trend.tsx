@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { BudgetDetailSheet } from "./budget-detail-sheet";
 import type { SpendingTrend, TrendCategory, TrendPeriod } from "@/lib/types";
 import type { Locale } from "@/i18n/routing";
+import { BudgetEditPopover } from "@/components/budget/budget-edit-popover";
 
 // ---------------------------------------------------------------------------
 // The range
@@ -562,6 +563,8 @@ function CategoryGrid({
   const whole = { from: periods[0].from, to: periods[periods.length - 1].to };
   const uncategorized = periods.reduce((s, p) => s + p.uncategorized, 0);
   const showUncategorized = uncategorized >= 1;
+  // Categories are top level here (a parent already includes its children), so this doesn't double count.
+  const totalBudget = categories.reduce((sum, c) => sum + c.monthlyBudget, 0);
   const num = (v: number) => (v > 0 ? formatNumberWhole(v, locale) : "–");
 
   return (
@@ -583,6 +586,7 @@ function CategoryGrid({
                 </th>
               ))}
               <th className="min-w-[4.5rem] ps-3 text-end font-medium">{t("gridAverage")}</th>
+              <th className="min-w-[4.5rem] ps-1 text-end font-medium">{t("gridBudget")}</th>
               <th className="min-w-[4.5rem] ps-1 text-end font-medium">{t("gridTotal")}</th>
             </tr>
           </thead>
@@ -634,6 +638,25 @@ function CategoryGrid({
                     );
                   })}
                   <td className="ps-3 text-end text-muted-foreground">{num(average)}</td>
+                  <td className="ps-1 text-end">
+                    <BudgetEditPopover
+                      categoryId={c.categoryId}
+                      categoryName={c.label}
+                      amount={c.monthlyBudget > 0 ? c.monthlyBudget : null}
+                      trigger={
+                        <button
+                          type="button"
+                          title={t("editBudget", { name: c.label })}
+                          className={cn(
+                            "rounded-md px-1.5 py-1 underline-offset-2 hover:bg-muted hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            c.monthlyBudget > 0 ? "text-foreground" : "text-muted-foreground"
+                          )}
+                        >
+                          {c.monthlyBudget > 0 ? num(c.monthlyBudget) : t("gridSetBudget")}
+                        </button>
+                      }
+                    />
+                  </td>
                   <td className="ps-1 text-end font-medium">{num(c.total)}</td>
                 </tr>
               );
@@ -649,6 +672,7 @@ function CategoryGrid({
                   <td key={p.from} className="px-2 text-end">{num(p.uncategorized)}</td>
                 ))}
                 <td className="ps-3 text-end">{num(periods.reduce((s, p) => s + (p.inProgress ? 0 : p.uncategorized), 0) / fullCount)}</td>
+                <td />
                 <td className="ps-1 text-end">{num(uncategorized)}</td>
               </tr>
             ) : null}
@@ -662,6 +686,9 @@ function CategoryGrid({
               <td className="border-t border-border ps-3 pt-2 text-end">
                 {num(periods.reduce((s, p) => s + (p.inProgress ? 0 : p.spent), 0) / fullCount)}
               </td>
+              <td className="border-t border-border ps-1 pt-2 text-end" title={t("gridBudgetTotal")}>
+                {num(totalBudget)}
+              </td>
               <td className="border-t border-border ps-1 pt-2 text-end">{num(periods.reduce((s, p) => s + p.spent, 0))}</td>
             </tr>
             <tr className="text-muted-foreground">
@@ -672,6 +699,7 @@ function CategoryGrid({
                 <td key={p.from} className="px-2 text-end">{num(p.income)}</td>
               ))}
               <td className="ps-3 text-end">{num(periods.reduce((s, p) => s + (p.inProgress ? 0 : p.income), 0) / fullCount)}</td>
+              <td />
               <td className="ps-1 text-end">{num(periods.reduce((s, p) => s + p.income, 0))}</td>
             </tr>
           </tfoot>

@@ -1,15 +1,12 @@
 import "server-only";
 
 import Database from "better-sqlite3";
-import path from "path";
 import fs from "fs";
 import { runMigrations } from "./migrate";
+import { DATA_DIR, DB_PATH } from "../lib/data-dir";
 import { refreshEstimatedCharges, seedFxRates } from "../lib/fx-rates";
 
-const DB_DIR = process.env.SPENT_DATA_DIR
-  ? path.resolve(process.env.SPENT_DATA_DIR)
-  : path.join(process.cwd(), "data");
-const DB_PATH = path.join(DB_DIR, "spent.db");
+const DB_DIR = DATA_DIR;
 
 function createDatabase(): Database.Database {
   if (!fs.existsSync(DB_DIR)) {
@@ -40,6 +37,12 @@ function createDatabase(): Database.Database {
 
 declare global {
   var _db: Database.Database | undefined;
+}
+
+/** Closes the open database so its file can be replaced (backup restore). The next getDb() reopens it. */
+export function closeDb(): void {
+  globalThis._db?.close();
+  globalThis._db = undefined;
 }
 
 export function getDb(): Database.Database {

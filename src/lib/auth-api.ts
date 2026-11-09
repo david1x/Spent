@@ -1,0 +1,78 @@
+/** Client calls for the optional sign-in (see src/server/auth). */
+
+export interface AuthStatus {
+  enabled: boolean;
+  requiredByServer: boolean;
+  signedIn: boolean;
+  username?: string | null;
+  enabledAt?: string | null;
+  recoveryCodesLeft?: number;
+}
+
+export interface AuthSession {
+  id: number;
+  createdAt: string;
+  lastSeenAt: string;
+  userAgent: string | null;
+  ip: string | null;
+  current: boolean;
+}
+
+/** An error from the auth API; `code` picks the translated message. */
+export class AuthApiError extends Error {
+  constructor(
+    public code: string | undefined,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
+  const { json, ...rest } = init ?? {};
+  const res = await fetch(url, {
+    ...rest,
+    cache: "no-store",
+    headers: json !== undefined ? { "Content-Type": "application/json" } : rest.headers,
+    body: json !== undefined ? JSON.stringify(json) : rest.body,
+  });
+  const body = (await res.json().catch(() => null)) as ({ code?: string; message?: string } & T) | null;
+  if (!res.ok) throw new AuthApiError(body?.code, body?.message ?? "Request failed");
+  return body as T;
+}
+
+export const getAuthStatus = () => call<AuthStatus>("/api/auth/status");
+
+export const startLogin = (username: string, password: string) =>
+  call<{ ticket: string }>("/api/auth/login", { method: "POST", json: { username, password } });
+
+export const finishLogin = (ticket: string, code: string) =>
+  call<{ usedRecoveryCode: boolean; recoveryCodesLeft: number }>("/api/auth/verify", {
+    method: "POST",
+    json: { ticket, code },
+  });
+
+export const signOut = () => call<{ success: boolean }>("/api/auth/logout", { method: "POST", json: {} });
+
+export const startEnrollment = (username: string, password: string) =>
+  call<{ enrollmentId: string; secret: string; qr: string }>("/api/auth/enroll", {
+    method: "POST",
+    json: { username, password },
+  });
+
+export const finishEnrollment = (enrollmentId: string, code: string) =>
+  call<{ recoveryCodes: string[] }>("/api/auth/enroll/confirm", { method: "POST", json: { enrollmentId, code } });
+
+export const listAuthSessions = () => call<{ sessions: AuthSession[] }>("/api/auth/sessions");
+
+export const endAuthSession = (id: number) =>
+  call<{ ended: number }>("/api/auth/sessions", { method: "DELETE", json: { id } });
+
+export const endOtherAuthSessions = () =>
+  call<{ ended: number }>("/api/auth/sessions", { method: "DELETE", json: { others: true } });
+
+export const newRecoveryCodes = (code: string) =>
+  call<{ recoveryCodes: string[] }>("/api/auth/recovery-codes", { method: "POST", json: { code } });
+
+export const disableSignIn = (password: string, code: string) =>
+  call<{ success: boolean }>("/api/auth/disable", { method: "POST", json: { password, code } });

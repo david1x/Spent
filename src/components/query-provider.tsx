@@ -42,9 +42,17 @@ function LiveData() {
 
     const check = async () => {
       if (checking || document.visibilityState !== "visible") return;
+      // Nothing to keep fresh there, and a 401 would send it back to itself.
+      if (window.location.pathname.startsWith("/login")) return;
       checking = true;
       try {
         const res = await fetch("/api/data-version", { cache: "no-store" });
+        if (res.status === 401) {
+          // Signed out (session ended, or signed out elsewhere): back to sign-in.
+          const next = window.location.pathname + window.location.search;
+          window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+          return;
+        }
         if (!res.ok) return;
         const { version } = (await res.json()) as { version: string };
         if (seen !== null && version !== seen) {

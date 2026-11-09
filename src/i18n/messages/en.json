@@ -150,7 +150,9 @@
     "spentSinceDate": "Spent since {date}",
     "lastPayCycle": "your last pay cycle",
     "trendExpandedHint": "Hover a month for its figures; click one to see its transactions.",
-    "paceTipTitle": "Day {day} of {total}"
+    "paceTipTitle": "Day {day} of {total}",
+    "editBudget": "Edit {name} budget",
+    "setBudget": "Set budget"
   },
   "syncPill": {
     "noBanksConnected": "No banks connected",
@@ -393,7 +395,8 @@
     "renameSaved": "Saved",
     "renameApplyPrompt": "{count, plural, one {One other transaction looks like the same payee.} other {# other transactions look like the same payee.}} Call {count, plural, one {it} other {them}} {name} too?",
     "renameApplyAction": "{count, plural, one {Rename it} other {Rename all #}}",
-    "renameApplyDone": "{count, plural, one {Renamed one more transaction to {name}} other {Renamed # more transactions to {name}}}"
+    "renameApplyDone": "{count, plural, one {Renamed one more transaction to {name}} other {Renamed # more transactions to {name}}}",
+    "editCategoryBudget": "Edit {category} budget"
   },
   "dashboard": {
     "syncing": "Syncing…",
@@ -541,8 +544,14 @@
       "overBudgetShort": "Over budget",
       "overBudgetLegend": "Over the category's monthly budget",
       "showAll": "Show all {count}",
-      "showFewer": "Show fewer"
-    }
+      "showFewer": "Show fewer",
+      "gridBudget": "Budget",
+      "gridSetBudget": "Set",
+      "editBudget": "Edit {name} budget",
+      "gridBudgetTotal": "Total of the monthly budgets above"
+    },
+    "editBudget": "Edit {name} budget",
+    "setBudget": "Set budget"
   },
   "settings": {
     "pageTitle": "Settings",
@@ -558,7 +567,8 @@
       "bank": "Bank accounts",
       "ai": "AI provider",
       "categories": "Categories",
-      "data": "Data & privacy"
+      "data": "Data & privacy",
+      "security": "Security"
     },
     "workspace": {
       "nameTitle": "Workspace name",
@@ -895,7 +905,21 @@
     "aiSummaryClaude": "Claude (Anthropic)",
     "aiSummaryOllama": "Ollama · {model}",
     "aiSummaryManual": "Manual categorization",
-    "aiSummaryOllamaFallback": "local"
+    "aiSummaryOllamaFallback": "local",
+    "welcome": {
+      "eyebrow": "Welcome",
+      "title": "Let's get Spent ready.",
+      "subtitle": "Start fresh with your bank, or bring everything over from a backup.",
+      "freshTitle": "Start fresh",
+      "freshHint": "Connect a bank or card, pick an AI helper and set your budgets. About five minutes.",
+      "freshCta": "Set up",
+      "restoreChoiceTitle": "Restore a backup",
+      "restoreChoiceHint": "Moving from another computer or into Docker? Bring your transactions, budgets and bank logins over from a Spent backup file.",
+      "restoreCta": "Choose a backup",
+      "restoreTitle": "Restore a backup",
+      "restoreSubtitle": "Pick the .spentbackup file and type the password you chose when you made it.",
+      "back": "Back"
+    }
   },
   "categoriesSeeded": {
     "Groceries": "Groceries",
@@ -1450,5 +1474,131 @@
     "errorNoRows": "This file doesn't have any rows.",
     "errorUnreadable": "Couldn't read this file. Try exporting it again as CSV or .xlsx.",
     "errorImport": "The import failed."
+  },
+  "backup": {
+    "title": "Backup and restore",
+    "description": "Everything in one file: transactions, categories, budgets, settings and your saved bank logins, protected by a password you choose. Use it to move Spent to another computer or into Docker.",
+    "exportTitle": "Download a backup",
+    "exportHint": "The file can only be opened with this password.",
+    "password": "Password",
+    "confirm": "Repeat the password",
+    "tooShort": "Use at least {min} characters.",
+    "mismatch": "The passwords don't match.",
+    "passwordWarning": "Keep the password somewhere safe. Without it the backup can't be restored, and there is no way to recover it.",
+    "exportButton": "Download backup",
+    "exporting": "Preparing…",
+    "exportDone": "Backup downloaded. Store it somewhere safe.",
+    "exportFailed": "The backup couldn't be made.",
+    "restoreTitle": "Restore a backup",
+    "restoreHint": "Replaces everything in this Spent with the backup. What's here now is kept as a copy in the data folder.",
+    "file": "Backup file",
+    "replaceWarning": "I understand this replaces all transactions, settings and bank logins in this Spent.",
+    "restoreButton": "Restore",
+    "restoring": "Restoring…",
+    "restoreDone": "Restored. Reloading…",
+    "restoreFailed": "The restore failed."
+  },
+  "auth": {
+    "errors": {
+      "invalid_credentials": "That name and password don't match.",
+      "invalid_code": "That code didn't work. Check that the time on your phone is right and use the newest code.",
+      "rate_limited": "Too many attempts. Wait a few minutes and try again.",
+      "expired": "That took too long. Start again.",
+      "already_enabled": "Sign-in is already on.",
+      "not_enabled": "Sign-in isn't on.",
+      "weak_password": "Use a password of at least 10 characters.",
+      "invalid_username": "Choose a name of up to 64 characters.",
+      "signed_out": "Sign in to continue.",
+      "generic": "Something went wrong. Try again."
+    },
+    "recovery": {
+      "copy": "Copy",
+      "copied": "Copied",
+      "download": "Download",
+      "fileHeader": "Spent recovery codes. Each one signs you in once, instead of a code from your authenticator app."
+    },
+    "enroll": {
+      "stepAccount": "Your sign-in",
+      "stepScan": "Authenticator app",
+      "stepCodes": "Recovery codes",
+      "username": "Name",
+      "password": "Password",
+      "confirm": "Repeat the password",
+      "tooShort": "Use at least {min} characters.",
+      "mismatch": "The passwords don't match.",
+      "continue": "Continue",
+      "scanHint": "Scan this with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden and others), then type the 6-digit code it shows.",
+      "qrAlt": "QR code for your authenticator app",
+      "manualKey": "Can't scan? Enter this key in the app:",
+      "codeLabel": "6-digit code",
+      "verify": "Verify and turn on",
+      "back": "Back",
+      "codesHint": "If you lose your phone, each of these codes signs you in once. Keep them somewhere safe, away from this computer. They won't be shown again.",
+      "savedCheck": "I saved my recovery codes.",
+      "finish": "Done"
+    },
+    "signIn": {
+      "username": "Name",
+      "password": "Password",
+      "continue": "Continue",
+      "codeHint": "Open your authenticator app and type the 6-digit code for Spent.",
+      "recoveryHint": "Type one of your recovery codes. Each one works once.",
+      "codeLabel": "6-digit code",
+      "recoveryLabel": "Recovery code",
+      "signIn": "Sign in",
+      "useRecovery": "Use a recovery code",
+      "useApp": "Use the authenticator app",
+      "startOver": "Start over"
+    },
+    "screen": {
+      "signInTitle": "Sign in to Spent",
+      "signInHint": "Your name and password, then a code from your authenticator app.",
+      "createTitle": "Create your sign-in",
+      "createHint": "This Spent is set to require sign-in. Choose a name and password and connect an authenticator app before anything else.",
+      "usedRecovery": "Signed in with a recovery code. You have {count, plural, =0 {no codes} one {# code} other {# codes}} left. Make new ones in Settings, Security.",
+      "continue": "Continue",
+      "lockedOut": "Lost your phone and your recovery codes? Whoever runs this server can turn sign-in off with npm run auth:reset."
+    },
+    "settings": {
+      "title": "Security",
+      "description": "Sign-in with a password and an authenticator app, for when Spent can be reached from other devices or the internet.",
+      "offTitle": "Sign-in is off",
+      "offHint": "Anyone who can open this address can see and change everything. That's fine on your own computer. Turn sign-in on before you put Spent behind a domain or open it to your network.",
+      "turnOn": "Turn on sign-in",
+      "enrollTitle": "Turn on sign-in",
+      "enrollHint": "You'll sign in with a name, a password and a 6-digit code from an authenticator app on your phone.",
+      "turnedOn": "Sign-in is on. This browser is signed in.",
+      "onTitle": "Sign-in is on",
+      "onHint": "Signed in as {username}.",
+      "onSince": "On since {date}.",
+      "signOut": "Sign out",
+      "recoveryTitle": "Recovery codes",
+      "recoveryHint": "Each code signs you in once if your phone isn't available.",
+      "recoveryLeft": "{count, plural, =0 {No codes left} one {# code left} other {# codes left}}",
+      "recoveryNew": "New recovery codes",
+      "recoveryConfirmHint": "Type a code from your authenticator app. Your current recovery codes stop working.",
+      "recoveryShownOnce": "Save these now. They won't be shown again.",
+      "recoveryMake": "Make new codes",
+      "done": "Done",
+      "sessionsTitle": "Signed-in browsers",
+      "sessionsHint": "Each browser stays signed in for 30 days after it was last used.",
+      "thisBrowser": "This browser",
+      "lastActive": "Active {when}",
+      "signOutOne": "Sign out",
+      "signOutOthers": "Sign out everywhere else",
+      "signedOutOthers": "{count, plural, =0 {No other browsers were signed in.} one {Signed out # browser.} other {Signed out # browsers.}}",
+      "offCardTitle": "Turn off sign-in",
+      "offCardHint": "Removes the password, the authenticator link and the recovery codes, and signs every browser out.",
+      "turnOff": "Turn off sign-in",
+      "turnOffConfirmHint": "Confirm with your password and a code from your authenticator app.",
+      "password": "Password",
+      "code": "6-digit code",
+      "turnedOff": "Sign-in is off.",
+      "domainTitle": "Putting Spent on a domain",
+      "domainHint": "A few things to know before Spent is reachable from outside this computer.",
+      "domainHttps": "Serve it over HTTPS (a reverse proxy such as Caddy, Traefik or nginx). Sign-in cookies are marked secure when the request arrives over HTTPS.",
+      "domainRequired": "Set SPENT_AUTH_REQUIRED=1 on the server so a fresh install asks for a sign-in before anything else, even before setup.",
+      "domainReset": "Locked out? On the server, run"
+    }
   }
 }

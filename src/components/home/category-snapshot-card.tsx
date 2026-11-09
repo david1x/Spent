@@ -11,6 +11,7 @@ import type { HomeCategorySnapshotItem } from "@/lib/types";
 import { CardShell, CardAction } from "./card-shell";
 import { categoryIconFor } from "./category-icon";
 import { AMBER_INK, formatWhole, tintFor } from "./home-format";
+import { BudgetEditPopover } from "@/components/budget/budget-edit-popover";
 
 interface Props {
   items: HomeCategorySnapshotItem[];
@@ -150,6 +151,8 @@ function Row({
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => {
+        // Keys pressed on the budget button inside belong to it.
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen();
@@ -213,11 +216,21 @@ function Row({
         )}
       >
         {formatWhole(item.spent, locale)}
-        <small className="block text-[11px] font-normal text-muted-foreground">
-          {hasBudget
-            ? t("ofAmount", { amount: formatWhole(item.budget, locale) })
-            : t("shareOfSpending", { percent: Math.round(share) })}
-        </small>
+        <BudgetEditPopover
+          categoryId={item.categoryId}
+          categoryName={name}
+          amount={hasBudget ? item.budget : null}
+          trigger={
+            <button
+              type="button"
+              onClick={(e) => e.stopPropagation()}
+              title={t("editBudget", { name })}
+              className="block w-full rounded-sm text-end text-[11px] font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {hasBudget ? t("ofAmount", { amount: formatWhole(item.budget, locale) }) : t("setBudget")}
+            </button>
+          }
+        />
       </div>
     </li>
   );

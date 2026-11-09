@@ -1,0 +1,28 @@
+services:
+  spent:
+    build: .
+    image: spent:latest
+    container_name: spent
+    restart: unless-stopped
+    ports:
+      # Spent has no login screen, so by default it only answers on this machine.
+      # To open it from other devices on your network, use "4005:4005" instead,
+      # and only on a network you trust. SPENT_PORT changes the host port.
+      - "127.0.0.1:${SPENT_PORT:-4005}:4005"   # Spent web UI
+    volumes:
+      - spent-data:/data        # database + encryption key (keep them together)
+    environment:
+      - SPENT_DATA_DIR=/data
+      - TZ=Asia/Jerusalem
+      # Chromium's sandbox can't start inside an unprivileged container;
+      # the container itself is the isolation boundary.
+      - SPENT_DISABLE_CHROMIUM_SANDBOX=1
+      # Behind a domain: ask for a sign-in (password + authenticator app)
+      # before anything else, even on a fresh install. Locked out?
+      #   docker exec spent node scripts/reset-sign-in.mjs
+      # - SPENT_AUTH_REQUIRED=1
+    # Chromium crashes on Docker's default 64MB /dev/shm.
+    shm_size: "1gb"
+
+volumes:
+  spent-data:

@@ -283,6 +283,26 @@ First launch of the menubar on macOS/Windows shows an unsigned-binary warning (G
 
 Open **`http://spent.localhost:41234`** and bookmark it.
 
+### Docker (Linux server)
+
+```bash
+git clone https://github.com/Shaya16/Spent.git
+cd Spent
+docker compose up -d --build
+```
+
+Open `http://127.0.0.1:4005`. The image bundles Chromium for the bank scrapers, and your data lives in the `spent-data` volume (`/data` in the container), so rebuilding or updating the image keeps it. Spent has no login screen, so the port only answers on the host by default. To reach it from other devices on a network you trust, change the port line in `docker-compose.yml` to `"4005:4005"`. `SPENT_PORT=4010 docker compose up -d` picks another host port.
+
+"Show browser during sync" needs a screen, so it doesn't work in Docker. Sync banks that need manual 2FA from a desktop install, or turn 2FA off for them.
+
+### Putting Spent on a domain
+
+Spent has no sign-in by default, because on your own computer there is nothing to sign in to. Before you make it reachable from other devices or the internet, turn on **Settings → Security → Turn on sign-in**: a name, a password and a 6-digit code from an authenticator app (Google Authenticator, 1Password, Bitwarden and others), plus ten single-use recovery codes.
+
+- Serve it over HTTPS through a reverse proxy (Caddy, Traefik, nginx). The session cookie is marked secure when requests arrive over HTTPS.
+- Set `SPENT_AUTH_REQUIRED=1` (there's a commented line in `docker-compose.yml`) so even a fresh install asks you to create the sign-in before anything else, including setup and restore.
+- Locked out (lost phone and recovery codes)? On the server: `npm run auth:reset`, or `docker exec spent node scripts/reset-sign-in.mjs`. It turns sign-in off and leaves your data alone.
+
 ## First-time setup
 
 In the browser:
@@ -362,7 +382,7 @@ Full threat model and responsible-disclosure policy → [SECURITY.md](SECURITY.m
 - `data/.encryption-key`: 32-byte AES key, mode `0600`
 - `~/Library/Logs/Spent/` (macOS) / `~/.local/state/spent/log/` (Linux): service logs
 
-Back up `data/` like any other folder. To migrate to a new machine, copy `data/` over and run `npm run service:install`.
+To move to a new machine (or into Docker), use **Settings → Data & privacy → Backup and restore**: it saves everything, including your encrypted bank logins and the key that unlocks them, as one password-protected file. Restore it on the new install from the same screen, or from the first setup screen. Copying `data/` over by hand also works. Set `SPENT_DATA_DIR` to keep the database and key somewhere other than `data/`.
 
 ## Architecture & code map
 

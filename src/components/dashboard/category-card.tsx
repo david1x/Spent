@@ -19,6 +19,7 @@ import {
   Sparkles,
   CircleDot,
   HelpCircle,
+  Pencil,
   Coffee,
   PawPrint,
   Gift,
@@ -32,6 +33,7 @@ import { formatCurrency } from "@/lib/formatters";
 import { translateCategoryName } from "@/lib/i18n-data";
 import type { CategoryWithData, BudgetStatus } from "@/lib/types";
 import type { Locale } from "@/i18n/routing";
+import { BudgetEditPopover } from "@/components/budget/budget-edit-popover";
 
 const ICON_MAP: Record<string, LucideIcon> = {
   "shopping-basket": ShoppingBasket,
@@ -75,9 +77,17 @@ export function CategoryCard({ data, onClick }: CategoryCardProps) {
   const categoryName = translateCategoryName(data.categoryName, tCat);
   const parentName = data.parentName ? translateCategoryName(data.parentName, tCat) : null;
   return (
-    <button
-      type="button"
+    // A div acting as a button, so the budget control inside can be a real button.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onClick?.();
+        }
+      }}
       className="group w-full cursor-pointer rounded-2xl border border-border bg-card p-5 text-start transition-colors duration-200 ease-out hover:border-[#D6C9AC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -173,13 +183,48 @@ export function CategoryCard({ data, onClick }: CategoryCardProps) {
               / {formatCurrency(data.budget, "ILS", locale)}
             </span>
           )}
+          {!isTracking && data.budget > 0 ? (
+            <BudgetEditPopover
+              categoryId={data.categoryId}
+              categoryName={categoryName}
+              amount={data.budget}
+              align="start"
+              trigger={
+                <button
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                  className="self-center rounded-md p-1 text-muted-foreground opacity-60 transition-opacity hover:bg-muted hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                  aria-label={t("editBudget", { name: categoryName })}
+                  title={t("editBudget", { name: categoryName })}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              }
+            />
+          ) : null}
         </div>
         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+          {isTracking || data.budget === 0 ? (
+            <BudgetEditPopover
+              categoryId={data.categoryId}
+              categoryName={categoryName}
+              amount={null}
+              align="start"
+              trigger={
+                <button
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                  className="rounded-sm font-medium text-foreground/80 underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {t("setBudget")}
+                </button>
+              }
+            />
+          ) : null}
           {isTracking ? (
             <VsTypical vsTypical={data.vsTypical} color={data.categoryColor} />
           ) : (
             <>
-              {data.budget === 0 && <span>{t("noBudgetSet")}</span>}
               {vsLast != null && <VsLastMonth pct={vsLast} />}
             </>
           )}
@@ -221,7 +266,7 @@ export function CategoryCard({ data, onClick }: CategoryCardProps) {
           <StatusPill status={data.status} />
         </div>
       )}
-    </button>
+    </div>
   );
 }
 

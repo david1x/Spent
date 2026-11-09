@@ -13,10 +13,13 @@ import { WorkspaceNameStep } from "@/components/setup/workspace-name-step";
 import { createWorkspace } from "@/lib/api";
 import { setActiveWorkspaceId } from "@/lib/workspace-store";
 import { useQueryClient } from "@tanstack/react-query";
+import { WelcomeStep } from "@/components/setup/welcome-step";
+import { BrandMark } from "@/components/brand-mark";
 
 export type SetupMode = "first-run" | "new-workspace";
 
-type WizardStep = 0 | 1 | 2 | 3 | 4 | 5;
+// 6 is the first-run welcome: start fresh or restore a backup.
+type WizardStep = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 const FIRST_RUN_STEPS = [
   { n: 1 as const, label: "Connect" },
@@ -38,7 +41,7 @@ export function SetupWizard({ mode = "first-run" }: { mode?: SetupMode }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<WizardStep>(
-    mode === "new-workspace" ? 0 : 1
+    mode === "new-workspace" ? 0 : 6
   );
   const [creating, setCreating] = useState(false);
 
@@ -70,7 +73,7 @@ export function SetupWizard({ mode = "first-run" }: { mode?: SetupMode }) {
     <div className="relative min-h-screen bg-background">
       <header className="relative z-10 mx-auto flex max-w-5xl items-center justify-between gap-6 px-6 py-6 md:px-8">
         <BrandMark />
-        <DotStepper step={step} steps={steps} />
+        {step === 6 ? <div /> : <DotStepper step={step} steps={steps} />}
         <a
           href="https://github.com/Shaya16/Spent"
           target="_blank"
@@ -90,6 +93,7 @@ export function SetupWizard({ mode = "first-run" }: { mode?: SetupMode }) {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.28, ease: [0.2, 0.7, 0.3, 1] }}
           >
+            {step === 6 && <WelcomeStep onStartFresh={() => setStep(1)} />}
             {step === 0 && (
               <WorkspaceNameStep
                 onComplete={handleNameSubmit}
@@ -127,31 +131,6 @@ export function SetupWizard({ mode = "first-run" }: { mode?: SetupMode }) {
           </motion.div>
         </AnimatePresence>
       </main>
-    </div>
-  );
-}
-
-function BrandMark() {
-  return (
-    <div className="flex items-center gap-2.5">
-      <img
-        src="/logo_lightmode.svg"
-        alt="Spent"
-        className="h-8 w-auto dark:hidden"
-      />
-      <img
-        src="/logo_darkmode.svg"
-        alt="Spent"
-        className="hidden h-8 w-auto dark:block"
-      />
-      <div>
-        <div className="font-serif text-lg font-semibold leading-none tracking-tight">
-          Spent
-        </div>
-        <div className="mt-1 text-[8px] font-bold tracking-[0.18em] text-muted-foreground">
-          YOUR MONEY · OPEN SOURCE
-        </div>
-      </div>
     </div>
   );
 }

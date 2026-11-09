@@ -26,6 +26,7 @@ import { SectionShell, SettingCard } from "@/components/settings/section-shell";
 import { WorkspaceDangerCard } from "@/components/settings/workspace-controls";
 import { BANK_PROVIDERS } from "@/lib/types";
 import { translateProviderName } from "@/lib/i18n-data";
+import { BackupCard } from "@/components/settings/backup-card";
 
 export default function DataSettingsPage() {
   const t = useTranslations("settings.data");
@@ -44,6 +45,7 @@ export default function DataSettingsPage() {
           <div className="text-sm text-muted-foreground">{tCommon("loading")}</div>
         </SettingCard>
       )}
+      <BackupCard />
       <SettingCard
         title={t("storageCardTitle")}
         description={t("storageCardDescription")}
