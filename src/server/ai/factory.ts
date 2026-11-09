@@ -4,25 +4,14 @@ import type { AIProvider } from "./types";
 import { ClaudeProvider } from "./providers/claude";
 import { OllamaProvider } from "./providers/ollama";
 import { getSetting } from "../db/queries/settings";
-import { decrypt } from "../lib/encryption";
+import { readClaudeApiKey } from "./api-key";
 
 export function createAIProvider(): AIProvider | null {
   const provider = getSetting("ai_provider");
 
   if (provider === "claude") {
-    const encryptedKey = getSetting("ai_api_key_encrypted");
-    const iv = getSetting("ai_api_key_iv");
-    const authTag = getSetting("ai_api_key_auth_tag");
-
-    if (!encryptedKey || !iv || !authTag) return null;
-
-    const apiKey = decrypt({
-      encrypted: Buffer.from(encryptedKey, "hex"),
-      iv: Buffer.from(iv, "hex"),
-      authTag: Buffer.from(authTag, "hex"),
-    });
-
-    return new ClaudeProvider(apiKey);
+    const apiKey = readClaudeApiKey();
+    return apiKey ? new ClaudeProvider(apiKey) : null;
   }
 
   if (provider === "ollama") {

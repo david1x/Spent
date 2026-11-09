@@ -42,6 +42,11 @@ function renderCategories(categories: CategoryForCategorization[]): string {
   return sections.join("\n");
 }
 
+// "PAYPAL *JOHN SMITH" names the seller's PayPal account, which is often a
+// person's name, so without this the AI files purchases under Transfers.
+const PAYMENT_PROCESSOR_RULE =
+  "Card charges through a payment processor (PayPal, Stripe, Square 'SQ *', Google, Apple, Paddle, 2Checkout and similar, usually written 'PROCESSOR *NAME') are purchases from the seller named after the asterisk, even when that name looks like a person. Categorize by what the seller likely sells; never use a transfers category for them. If the seller is unclear, pick the closest spending category with low confidence.";
+
 const HIERARCHY_RULE =
   "Category lists may show group headers (e.g., 'Food:') with leaves indented beneath them. Group headers are NOT valid categoryName values - always pick a leaf (the indented name).";
 
@@ -98,6 +103,7 @@ ${CONFIDENCE_BLOCK}
 Rules:
 - Use ONLY category names from the provided list.
 - ${HIERARCHY_RULE}
+- ${PAYMENT_PROCESSOR_RULE}
 - Every transaction must be categorized; pick the closest matching category.
 - Israeli merchant names (Hebrew or transliterated) are common; categorize based on the business type.
 - Pay attention to the "NOT" clauses in the category descriptions - they disambiguate common confusions.
@@ -130,6 +136,7 @@ Rules for new categories:
 Rules for every transaction:
 - Every transaction must be categorized - either an existing or a proposed new category.
 - ${HIERARCHY_RULE}
+- ${PAYMENT_PROCESSOR_RULE}
 - Israeli merchant names (Hebrew or transliterated) are common; categorize based on the business type.
 - Pay attention to the "NOT" clauses in the category descriptions.
 - Apply lessons from "Past corrections" - if a new merchant resembles a past correction, prefer the corrected category.`;

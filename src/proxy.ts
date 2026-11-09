@@ -69,6 +69,7 @@ const VIEWER_WRITES: [method: string, path: RegExp][] = [
   ["POST", /^\/api\/auth\/logout$/],
   ["DELETE", /^\/api\/auth\/sessions$/],
   ["POST", /^\/api\/auth\/recovery-codes$/],
+  ["POST", /^\/api\/auth\/account$/],
   ["POST", /^\/api\/category-requests$/],
   ["DELETE", /^\/api\/category-requests$/],
 ];

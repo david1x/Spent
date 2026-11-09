@@ -15,6 +15,7 @@ import {
   LogOut,
   MessageSquareDashed,
   MoreHorizontal,
+  PencilLine,
   ShieldCheck,
   UserMinus,
   UserPlus,
@@ -30,11 +31,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SectionShell, SettingCard } from "@/components/settings/section-shell";
+import { ErrorLine } from "@/components/auth/enroll-flow";
+import { useAuthErrorMessage } from "@/components/auth/auth-fields";
 import {
   createShareInvite,
   getSharing,
   listWorkspaces,
   removeViewer,
+  renameViewer,
   revokeShareInvite,
   setViewerWorkspaces,
   signOutViewer,
@@ -259,6 +263,7 @@ function PersonRow({ viewer, workspaces }: { viewer: ViewerInfo; workspaces: Wor
   const format = useFormatter();
   const queryClient = useQueryClient();
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: SHARING_KEY });
 
   const share = useMutation({
@@ -326,6 +331,10 @@ function PersonRow({ viewer, workspaces }: { viewer: ViewerInfo; workspaces: Wor
             <MoreHorizontal className="h-4 w-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={() => setRenaming(true)}>
+              <PencilLine className="h-3.5 w-3.5" />
+              {t("rename")}
+            </DropdownMenuItem>
             <DropdownMenuItem disabled={viewer.activeSessions === 0} onClick={() => signOut.mutate()}>
               <LogOut className="h-3.5 w-3.5" />
               {t("signOutEverywhere")}
@@ -337,6 +346,13 @@ function PersonRow({ viewer, workspaces }: { viewer: ViewerInfo; workspaces: Wor
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <RenameViewerDialog
+        open={renaming}
+        viewer={viewer}
+        onClose={() => setRenaming(false)}
+        onRenamed={refresh}
+      />
 
       <Dialog open={confirmRemove} onOpenChange={setConfirmRemove}>
         <DialogContent className="max-w-sm">
@@ -356,6 +372,83 @@ function PersonRow({ viewer, workspaces }: { viewer: ViewerInfo; workspaces: Wor
         </DialogContent>
       </Dialog>
     </li>
+  );
+}
+
+function RenameViewerDialog({
+  open,
+  viewer,
+  onClose,
+  onRenamed,
+}: {
+  open: boolean;
+  viewer: ViewerInfo;
+  onClose: () => void;
+  onRenamed: () => void;
+}) {
+  const t = useTranslations("sharing.settings");
+  const errorMessage = useAuthErrorMessage();
+  const [name, setName] = useState(viewer.username);
+  const [error, setError] = useState<string | null>(null);
+  const trimmed = name.trim();
+  const close = () => {
+    setName(viewer.username);
+    setError(null);
+    onClose();
+  };
+  const rename = useMutation({
+    mutationFn: () => renameViewer(viewer.id, trimmed),
+    onSuccess: (res) => {
+      toast.success(t("renamedToast", { name: res.username }));
+      onRenamed();
+      setError(null);
+      onClose();
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => (o ? undefined : close())}>
+      <DialogContent className="max-w-sm">
+        <DialogTitle className="font-serif text-xl font-normal">{t("renameTitle", { name: viewer.username })}</DialogTitle>
+        <DialogDescription className="text-sm">{t("renameHint")}</DialogDescription>
+        <form
+          className="space-y-3 pt-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            if (trimmed && trimmed !== viewer.username) rename.mutate();
+          }}
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor={`rename-viewer-${viewer.id}`} className="text-xs text-muted-foreground">
+              {t("renameLabel")}
+            </Label>
+            <Input
+              id={`rename-viewer-${viewer.id}`}
+              maxLength={64}
+              value={name}
+              autoFocus
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <ErrorLine error={error} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={close}>
+              {t("cancel")}
+            </Button>
+            <Button
+              type="submit"
+              className="gap-1.5"
+              disabled={!trimmed || trimmed === viewer.username || rename.isPending}
+            >
+              {rename.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {t("renameSave")}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -17,6 +17,7 @@ import { RECOMMENDED_OLLAMA_MODELS, type AppSettings } from "@/lib/types";
 import { getSettings, saveAIConfig } from "@/lib/api";
 import { OllamaModelStatus } from "./ollama-model-status";
 import { SectionShell, SettingCard } from "./section-shell";
+import { CLAUDE_KEY_QUERY, ClaudeKeyStatus } from "./claude-key-status";
 import { toast } from "sonner";
 
 function ollamaModelKey(name: string): string {
@@ -71,6 +72,8 @@ function AIForm({ settings }: { settings: AppSettings }) {
   const [apiKey, setApiKey] = useState("");
   const [ollamaUrl, setOllamaUrl] = useState(settings.ollamaUrl);
   const [ollamaModel, setOllamaModel] = useState(settings.ollamaModel);
+  // Bumped on save so the key status starts fresh (no old key left revealed).
+  const [saves, setSaves] = useState(0);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -82,8 +85,10 @@ function AIForm({ settings }: { settings: AppSettings }) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
+      queryClient.invalidateQueries({ queryKey: CLAUDE_KEY_QUERY });
       toast.success(t("aiSettingsSaved"));
       setApiKey("");
+      setSaves((n) => n + 1);
     },
   });
 
@@ -136,7 +141,8 @@ function AIForm({ settings }: { settings: AppSettings }) {
           title={t("claudeKeyCardTitle")}
           description={t("claudeKeyCardDescription")}
         >
-          <div className="space-y-2">
+          <ClaudeKeyStatus key={saves} typedKey={apiKey} />
+          <div className="mt-4 space-y-2">
             <Label htmlFor="claude-key">{t("apiKeyLabel")}</Label>
             <Input
               id="claude-key"

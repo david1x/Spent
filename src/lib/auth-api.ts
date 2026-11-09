@@ -95,3 +95,6 @@ export const startInviteEnrollment = (token: string, username: string, password:
 
 export const finishInviteEnrollment = (enrollmentId: string, code: string) =>
   call<{ recoveryCodes: string[] }>("/api/invites/confirm", { method: "POST", json: { enrollmentId, code } });
+
+export const renameAccount = (username: string, password: string) =>
+  call<{ username: string }>("/api/auth/account", { method: "POST", json: { username, password } });

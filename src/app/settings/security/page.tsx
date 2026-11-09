@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFormatter, useTranslations } from "next-intl";
 import { toast } from "sonner";
-import { Eye, KeyRound, Laptop, Loader2, LogOut, ShieldCheck, ShieldOff } from "lucide-react";
+import { Eye, KeyRound, Laptop, Loader2, LogOut, PencilLine, ShieldCheck, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +20,7 @@ import {
   getAuthStatus,
   listAuthSessions,
   newRecoveryCodes,
+  renameAccount,
   signOut,
   type AuthSession,
 } from "@/lib/auth-api";
@@ -72,6 +74,7 @@ export default function SecuritySettingsPage() {
       ) : status.role === "viewer" ? (
         <>
           <ViewerAccountCard username={status.username ?? ""} ownerName={status.ownerName ?? null} />
+          <RenameCard username={status.username ?? ""} />
           <RecoveryCard left={status.recoveryCodesLeft ?? 0} />
           <SessionsCard />
         </>
@@ -94,6 +97,7 @@ export default function SecuritySettingsPage() {
       ) : (
         <>
           <SignedInCard username={status.username ?? ""} enabledAt={status.enabledAt ?? null} />
+          <RenameCard username={status.username ?? ""} />
           <RecoveryCard left={status.recoveryCodesLeft ?? 0} />
           <SessionsCard />
           <TurnOffCard />
@@ -217,6 +221,114 @@ function ViewerAccountCard({ username, ownerName }: { username: string; ownerNam
           {tAuth("signOut")}
         </Button>
       </div>
+    </SettingCard>
+  );
+}
+
+/** A new sign-in name, confirmed with the password. */
+function RenameCard({ username }: { username: string }) {
+  const t = useTranslations("auth.settings");
+  const tCommon = useTranslations("common");
+  const errorMessage = useAuthErrorMessage();
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const trimmed = name.trim();
+  const unchanged = trimmed === username;
+  const close = () => {
+    setOpen(false);
+    setName("");
+    setPassword("");
+    setError(null);
+  };
+  const mutation = useMutation({
+    mutationFn: () => renameAccount(trimmed, password),
+    onSuccess: (res) => {
+      toast.success(t("renamed", { username: res.username }));
+      close();
+      void queryClient.invalidateQueries({ queryKey: ["auth-status"] });
+      // The sidebar's account menu reads the name from the server layout.
+      router.refresh();
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  return (
+    <SettingCard title={t("renameTitle")} description={t("renameHint")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 truncate text-sm font-medium">
+          <bdi>{username}</bdi>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => {
+            setName(username);
+            setOpen(true);
+          }}
+        >
+          <PencilLine className="h-3.5 w-3.5" />
+          {t("renameButton")}
+        </Button>
+      </div>
+      <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : close())}>
+        <DialogContent className="max-w-md">
+          <DialogTitle className="font-serif text-xl font-normal">{t("renameTitle")}</DialogTitle>
+          <DialogDescription className="text-xs">{t("renameConfirmHint")}</DialogDescription>
+          <form
+            className="space-y-3 pt-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setError(null);
+              if (trimmed && !unchanged && password) mutation.mutate();
+            }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-name" className="text-xs text-muted-foreground">
+                {t("renameNewName")}
+              </Label>
+              <Input
+                id="rename-name"
+                autoComplete="username"
+                maxLength={64}
+                value={name}
+                autoFocus
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-password" className="text-xs text-muted-foreground">
+                {t("password")}
+              </Label>
+              <Input
+                id="rename-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <ErrorLine error={error} />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={close}>
+                {tCommon("cancel")}
+              </Button>
+              <Button
+                type="submit"
+                className="gap-1.5"
+                disabled={!trimmed || unchanged || !password || mutation.isPending}
+              >
+                {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {t("renameSave")}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </SettingCard>
   );
 }

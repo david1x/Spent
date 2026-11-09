@@ -23,6 +23,7 @@ import type {
 } from "./types";
 import type { InsightsPayload, RecurringCadence } from "./insights-types";
 import { getActiveWorkspaceIdSync } from "./workspace-store";
+import { AuthApiError } from "./auth-api";
 import { scopeHeaderValue } from "./scope-store";
 
 const BASE = "";
@@ -166,6 +167,27 @@ export function testBankConnection(
         ? { credentials: options.credentials }
         : {}),
     }),
+  });
+}
+
+export interface ClaudeKeyStatus {
+  state: "missing" | "unreadable" | "saved";
+  hint: string | null;
+  key?: string;
+}
+
+export function getClaudeKeyStatus(reveal = false) {
+  return fetchJSON<ClaudeKeyStatus>(`/api/ai/claude-key${reveal ? "?reveal=1" : ""}`);
+}
+
+export type ClaudeKeyCheck = "ok" | "rejected" | "unreachable" | "error" | "missing";
+
+/** Tests the typed key when given, otherwise the saved one. */
+export function testClaudeKey(apiKey?: string) {
+  return fetchJSON<{ result: ClaudeKeyCheck }>("/api/ai/claude-key", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(apiKey ? { apiKey } : {}),
   });
 }
 
@@ -1048,6 +1070,14 @@ export function setViewerWorkspaces(viewerId: number, workspaceIds: number[]) {
 
 export function signOutViewer(viewerId: number) {
   return fetchWithMessage<{ ended: number }>(`/api/sharing/viewers/${viewerId}`, jsonInit("PATCH", { signOut: true }));
+}
+
+/** Throws AuthApiError, so a taken name gets its translated message. */
+export async function renameViewer(viewerId: number, username: string) {
+  const res = await fetch(`/api/sharing/viewers/${viewerId}`, withWorkspaceHeader(jsonInit("PATCH", { username })));
+  const body = (await res.json().catch(() => null)) as { code?: string; message?: string; username?: string } | null;
+  if (!res.ok) throw new AuthApiError(body?.code, body?.message ?? "Request failed");
+  return { username: body?.username ?? username };
 }
 
 export function removeViewer(viewerId: number) {

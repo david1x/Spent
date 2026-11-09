@@ -45,9 +45,17 @@ export function closeDb(): void {
   globalThis._db = undefined;
 }
 
+// Module state, so it resets when dev reloads this file while the connection
+// above survives. Without it, a migration added while `npm run dev` is
+// running never applies until a restart, and code that needs it fails.
+let migratedThisLoad = false;
+
 export function getDb(): Database.Database {
   if (!globalThis._db) {
     globalThis._db = createDatabase();
+  } else if (!migratedThisLoad) {
+    runMigrations(globalThis._db);
   }
+  migratedThisLoad = true;
   return globalThis._db;
 }

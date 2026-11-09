@@ -703,7 +703,27 @@
       "modelLabel": "Model",
       "recommendedTag": "recommended",
       "saveAiSettings": "Save AI settings",
-      "aiSettingsSaved": "AI settings saved"
+      "aiSettingsSaved": "AI settings saved",
+      "key": {
+        "saved": "Key saved",
+        "missing": "No key saved",
+        "missingHint": "AI categorization stays off until you paste a key below.",
+        "unreadable": "Saved key can't be read",
+        "unreadableHint": "The encryption key file changed since it was saved. Paste the key again below.",
+        "show": "Show",
+        "hide": "Hide",
+        "copy": "Copy",
+        "copied": "Copied",
+        "test": "Test key",
+        "testTyped": "Test new key",
+        "result": {
+          "ok": "Anthropic accepted this key.",
+          "rejected": "Anthropic rejected this key. It may be revoked or mistyped.",
+          "unreachable": "Couldn't reach Anthropic. Check the internet connection and try again.",
+          "error": "The test didn't finish. Try again in a moment.",
+          "missing": "There's no key to test yet."
+        }
+      }
     },
     "categories": {
       "title": "Categories",
@@ -1610,7 +1630,14 @@
       "domainHttps": "Serve it over HTTPS (a reverse proxy such as Caddy, Traefik or nginx). Sign-in cookies are marked secure when the request arrives over HTTPS.",
       "domainRequired": "Set SPENT_AUTH_REQUIRED=1 on the server so a fresh install asks for a sign-in before anything else, even before setup.",
       "domainReset": "Locked out? On the server, run",
-      "offCardSharing": "Everyone you shared with loses access too."
+      "offCardSharing": "Everyone you shared with loses access too.",
+      "renameTitle": "Sign-in name",
+      "renameHint": "The name you type when you sign in. Your password, authenticator app and recovery codes stay the same.",
+      "renameButton": "Change",
+      "renameConfirmHint": "Pick a new name and confirm with your password. It has to be one nobody else here uses.",
+      "renameNewName": "New name",
+      "renameSave": "Save name",
+      "renamed": "You now sign in as {username}."
     }
   },
   "sharing": {
@@ -1704,7 +1731,13 @@
       "whatTitle": "What they can do",
       "canSee": "See everything in the workspaces you share: transactions, budgets, insights and charts.",
       "canSuggest": "Suggest a category for a transaction. It shows up on your Home and Transactions pages to approve or decline.",
-      "cannot": "They can't sync, edit, set budgets, see your bank logins or open Settings."
+      "cannot": "They can't sync, edit, set budgets, see your bank logins or open Settings.",
+      "rename": "Change name",
+      "renameTitle": "Rename {name}",
+      "renameHint": "They sign in with the new name from now on. Their password and authenticator app stay the same, so let them know.",
+      "renameLabel": "New name",
+      "renameSave": "Save name",
+      "renamedToast": "Renamed to {name}."
     }
   }
 }

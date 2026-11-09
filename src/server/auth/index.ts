@@ -512,11 +512,16 @@ export function finishLogin(
 // ---------------------------------------------------------------------------
 // Turning sign-in on: choose a name and password, scan the code, confirm one.
 
-export function validateNewAccount(username: string, password: string): void {
+function validateName(username: string): string {
   const name = username.trim();
   if (name.length < 1 || name.length > 64 || /[\u0000-\u001f]/.test(name)) {
     throw new AuthError("invalid_username", "Choose a name of up to 64 characters.");
   }
+  return name;
+}
+
+export function validateNewAccount(username: string, password: string): void {
+  validateName(username);
   if (password.length < MIN_PASSWORD_LENGTH || password.length > 256) {
     throw new AuthError(
       "weak_password",
@@ -623,12 +628,60 @@ export function findUsableInvite(token: string): InviteRow | null {
   return (getDb().prepare(USABLE_INVITE_SQL).get(hashInviteToken(token)) as InviteRow | undefined) ?? null;
 }
 
-function assertNameFree(username: string): void {
+/** Throws when someone else signs in with that name. `self` may keep (or recase) theirs. */
+function assertNameFree(username: string, self?: Account): void {
   const name = username.trim();
-  const taken =
-    (getGlobalSetting(KEYS.username) ?? "").toLowerCase() === name.toLowerCase() ||
-    getDb().prepare("SELECT 1 FROM viewers WHERE username = ?").get(name) != null;
-  if (taken) throw new AuthError("name_taken", "That name is taken. Choose another.", 409);
+  const ownerTaken =
+    self?.kind !== "owner" && (getGlobalSetting(KEYS.username) ?? "").toLowerCase() === name.toLowerCase();
+  const viewerTaken =
+    getDb()
+      .prepare("SELECT 1 FROM viewers WHERE username = ? AND id IS NOT ?")
+      .get(name, self?.kind === "viewer" ? self.id : null) != null;
+  if (ownerTaken || viewerTaken) throw new AuthError("name_taken", "That name is taken. Choose another.", 409);
+}
+
+function setAccountName(account: Account, name: string): void {
+  if (account.kind === "owner") setGlobalSetting(KEYS.username, name);
+  else getDb().prepare("UPDATE viewers SET username = ? WHERE id = ?").run(name, account.id);
+}
+
+/**
+ * The signed-in account picks a new sign-in name, confirmed with its
+ * password. Sessions, the authenticator app and recovery codes keep working.
+ */
+export function renameAccount(access: Access, username: string, password: string, client: ClientInfo): string {
+  if (!isAuthEnabled()) throw new AuthError("not_enabled", "Sign-in is off.");
+  const account = accountOf(access);
+  const name = validateName(username);
+  assertNotLimited(client.ip);
+  const stored =
+    account.kind === "owner"
+      ? getGlobalSetting(KEYS.passwordHash)
+      : ((getDb().prepare("SELECT password_hash FROM viewers WHERE id = ?").get(account.id) as
+          | { password_hash: string }
+          | undefined)?.password_hash ?? null);
+  if (!verifyPassword(password, stored)) {
+    recordFailure(client.ip);
+    throw new AuthError("invalid_credentials", "That password isn't right.", 401);
+  }
+  getDb().transaction(() => {
+    assertNameFree(name, account);
+    setAccountName(account, name);
+  })();
+  return name;
+}
+
+/** The owner renaming someone they shared with. Null when there's no such person. */
+export function renameViewer(viewerId: number, username: string): string | null {
+  const name = validateName(username);
+  const db = getDb();
+  return db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM viewers WHERE id = ?").get(viewerId) == null) return null;
+    const account: Account = { kind: "viewer", id: viewerId };
+    assertNameFree(name, account);
+    setAccountName(account, name);
+    return name;
+  })();
 }
 
 const INVITE_GONE = () => new AuthError("invite_invalid", "This invite link has expired or was already used.", 410);
