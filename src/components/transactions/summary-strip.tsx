@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
@@ -116,6 +117,7 @@ export function ReviewBanner({
   onDone: () => void;
 }) {
   const t = useTranslations("transactions");
+  const { readOnly } = useAccess();
   const queryClient = useQueryClient();
   const approveAll = useMutation({
     mutationFn: async () => {
@@ -145,7 +147,7 @@ export function ReviewBanner({
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {uncategorizedCount > 0 ? <CategorizeWithAiPill count={uncategorizedCount} /> : null}
-        {count > 0 ? (
+        {count > 0 && !readOnly ? (
           <Button size="sm" variant="outline" onClick={() => approveAll.mutate()} disabled={approveAll.isPending}>
             {approveAll.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             {t("reviewApproveAll", { count })}
@@ -161,6 +163,7 @@ export function ReviewBanner({
 
 /** Rows with no category at all: AI categorization proposes one for each. */
 function CategorizeWithAiPill({ count, className }: { count: number; className?: string }) {
+  const { readOnly } = useAccess();
   const t = useTranslations("transactions");
   const tDash = useTranslations("dashboard");
   const queryClient = useQueryClient();
@@ -182,6 +185,7 @@ function CategorizeWithAiPill({ count, className }: { count: number; className?:
     },
   });
 
+  if (readOnly) return null;
   return (
     <>
       <button

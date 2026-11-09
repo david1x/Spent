@@ -10,9 +10,9 @@
 **Local-only personal finance for Israeli bank accounts.**
 Encrypted. AI-categorized. Yours.
 
-[![Website](https://img.shields.io/badge/%F0%9F%8C%90%20Website-1F4D33?style=for-the-badge&labelColor=1F4D33)](https://shaya16.github.io/Spent/)
-[![Docs](https://img.shields.io/badge/%F0%9F%93%96%20Docs-1F4D33?style=for-the-badge&labelColor=1F4D33)](https://shaya16.github.io/Spent/getting-started)
-[![Install](https://img.shields.io/badge/%E2%AC%87%20Install-28C75B?style=for-the-badge&labelColor=28C75B)](https://shaya16.github.io/Spent/install/mac)
+[![Website](https://img.shields.io/badge/%F0%9F%8C%90%20Website-1F4D33?style=for-the-badge&labelColor=1F4D33)](https://david1x.github.io/Spent/)
+[![Docs](https://img.shields.io/badge/%F0%9F%93%96%20Docs-1F4D33?style=for-the-badge&labelColor=1F4D33)](https://david1x.github.io/Spent/getting-started)
+[![Install](https://img.shields.io/badge/%E2%AC%87%20Install-28C75B?style=for-the-badge&labelColor=28C75B)](https://david1x.github.io/Spent/install/mac)
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-000?logo=nextdotjs&logoColor=white&style=flat-square)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white&style=flat-square)](https://react.dev/)
@@ -99,7 +99,7 @@ Rename a cryptic bank line like `חיוב צק/12345/0001002/10` to "Rent", add 
 <td valign="top">
 
 ### 🗂 Workspaces
-Separate budgets for you, your home or a side business. Move a bank login or a single card between workspaces; syncing a workspace also covers the cards moved into it.
+Separate budgets for you, your home or a side business. Move a bank login or a single card between workspaces; syncing a workspace also covers the cards moved into it. Share a workspace with your partner as view-only: they can look, and suggest a category for you to approve.
 
 </td>
 </tr>
@@ -266,10 +266,10 @@ You can change providers any time from **Settings → AI provider**. Existing ca
 
 ## Install
 
-> Prefer a screenshot-by-screenshot walkthrough? The [step-by-step install guides](https://shaya16.github.io/Spent/getting-started/) on the docs site cover macOS and Windows separately, with build-tool setup and tray-app gotchas spelled out.
+> Prefer a screenshot-by-screenshot walkthrough? The [step-by-step install guides](https://david1x.github.io/Spent/getting-started/) on the docs site cover macOS and Windows separately, with build-tool setup and tray-app gotchas spelled out.
 
 ```bash
-git clone https://github.com/Shaya16/Spent.git
+git clone https://github.com/david1x/Spent.git
 cd spent
 npm install
 npm run setup
@@ -286,7 +286,7 @@ Open **`http://spent.localhost:41234`** and bookmark it.
 ### Docker (Linux server)
 
 ```bash
-git clone https://github.com/Shaya16/Spent.git
+git clone https://github.com/david1x/Spent.git
 cd Spent
 docker compose up -d --build
 ```
@@ -302,6 +302,12 @@ Spent has no sign-in by default, because on your own computer there is nothing t
 - Serve it over HTTPS through a reverse proxy (Caddy, Traefik, nginx). The session cookie is marked secure when requests arrive over HTTPS.
 - Set `SPENT_AUTH_REQUIRED=1` (there's a commented line in `docker-compose.yml`) so even a fresh install asks you to create the sign-in before anything else, including setup and restore.
 - Locked out (lost phone and recovery codes)? On the server: `npm run auth:reset`, or `docker exec spent node scripts/reset-sign-in.mjs`. It turns sign-in off and leaves your data alone.
+
+### Sharing with someone
+
+With sign-in on, **Settings → Sharing** makes an invite link for the workspaces you pick. The person who opens it creates their own name, password and authenticator code, and from then on sees those workspaces read-only: transactions, budgets, insights. They can't sync, edit, set budgets, see bank logins or open Settings; the server enforces that, not just the screens.
+
+The one thing they can do is suggest a different category for a transaction. Suggestions wait on your Home and Transactions pages until you approve or decline them; approving applies the category as if you'd picked it. Links work once and expire after 7 days. You can change what each person sees, sign them out, or stop sharing at any time; turning sign-in off ends all sharing.
 
 ## First-time setup
 
@@ -415,7 +421,7 @@ spent/
 
 ## Troubleshooting
 
-> The [Troubleshooting docs](https://shaya16.github.io/Spent/troubleshooting/) cover Defender, Gatekeeper, Cloudflare bot challenges, and bank-specific quirks in more depth.
+> The [Troubleshooting docs](https://david1x.github.io/Spent/troubleshooting/) cover Defender, Gatekeeper, Cloudflare bot challenges, and bank-specific quirks in more depth.
 
 - **Port 41234 in use** → `lsof -nP -iTCP:41234 -sTCP:LISTEN` (Unix) or `netstat -ano | findstr :41234` (Windows). Kill the offender and re-run install.
 - **Gatekeeper blocks `Spent.app`** → right-click → Open → Open. One-time.

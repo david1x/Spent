@@ -47,7 +47,13 @@
     "scopeLabel": "חשבונות בסיכומים: {scope}",
     "scopeHint": "הסיכומים כוללים את הבנקים שבחרת ואת הכרטיסים המקושרים לכל אחד מהם בהגדרות › חשבונות בנק.",
     "scopeLinkedCards": "{count, plural, =0 {אין כרטיסים מקושרים} one {+ כרטיס מקושר אחד} other {+ # כרטיסים מקושרים}}",
-    "insights": "תובנות"
+    "insights": "תובנות",
+    "account": "חשבון",
+    "signOut": "יציאה",
+    "signedInAs": "מחובר/ת בתור {name}",
+    "accountSecurity": "חשבון ואבטחה",
+    "ownerAccount": "בעלים",
+    "viewOnlyAccount": "צפייה בלבד"
   },
   "home": {
     "pageTitle": "בית",
@@ -396,7 +402,8 @@
     "renameApplyPrompt": "{count, plural, one {עוד תנועה אחת נראית מאותו מוטב.} other {עוד # תנועות נראות מאותו מוטב.}} לקרוא גם {count, plural, one {לה} other {להן}} {name}?",
     "renameApplyAction": "{count, plural, one {שינוי השם שלה} other {שינוי השם של כל ה־#}}",
     "renameApplyDone": "{count, plural, one {עוד תנועה אחת נקראת עכשיו {name}} other {עוד # תנועות נקראות עכשיו {name}}}",
-    "editCategoryBudget": "עריכת התקציב של {category}"
+    "editCategoryBudget": "עריכת התקציב של {category}",
+    "suggestCategoryLabel": "הצעת קטגוריה"
   },
   "dashboard": {
     "syncing": "מסנכרן…",
@@ -568,7 +575,8 @@
       "ai": "ספק AI",
       "categories": "קטגוריות",
       "data": "נתונים ופרטיות",
-      "security": "אבטחה"
+      "security": "אבטחה",
+      "sharing": "שיתוף"
     },
     "workspace": {
       "nameTitle": "שם סביבת העבודה",
@@ -1509,7 +1517,10 @@
       "weak_password": "סיסמה של 10 תווים לפחות.",
       "invalid_username": "שם של עד 64 תווים.",
       "signed_out": "יש להתחבר כדי להמשיך.",
-      "generic": "משהו השתבש. כדאי לנסות שוב."
+      "generic": "משהו השתבש. כדאי לנסות שוב.",
+      "name_taken": "השם הזה תפוס. בחרו שם אחר.",
+      "invite_invalid": "קישור ההזמנה פג או שכבר נעשה בו שימוש.",
+      "invalid_request": "חסר משהו. בדקו את הטופס ונסו שוב."
     },
     "recovery": {
       "copy": "העתקה",
@@ -1598,7 +1609,102 @@
       "domainHint": "כמה דברים שכדאי לדעת לפני ש-Spent נגיש מחוץ למחשב הזה.",
       "domainHttps": "להגיש דרך HTTPS (פרוקסי הפוך כמו Caddy,‏ Traefik או nginx). עוגיות הכניסה מסומנות כמאובטחות כשהבקשה מגיעה ב-HTTPS.",
       "domainRequired": "להגדיר בשרת SPENT_AUTH_REQUIRED=1, כדי שהתקנה חדשה תבקש פרטי כניסה לפני כל דבר אחר, עוד לפני ההגדרה.",
-      "domainReset": "ננעלת בחוץ? בשרת מריצים"
+      "domainReset": "ננעלת בחוץ? בשרת מריצים",
+      "offCardSharing": "כל מי ששיתפתם איתו יאבד גם הוא את הגישה."
+    }
+  },
+  "sharing": {
+    "requests": {
+      "ownerTitle": "הצעות לקטגוריה",
+      "viewerTitle": "ממתין לאישור",
+      "ownerHint": "מי ששיתפתם איתו חושב שאלה שייכות לקטגוריה אחרת. שום דבר לא משתנה עד שתאשרו.",
+      "viewerHint": "{owner} מחליט/ה. עד אז שום דבר לא משתנה.",
+      "theOwner": "הבעלים",
+      "approveAll": "לאשר הכול",
+      "approve": "לאשר",
+      "decline": "לדחות",
+      "withdraw": "לבטל הצעה",
+      "approveAs": "לאשר: {category}",
+      "approvedToast": "{count, plural, one {ההצעה אושרה} other {# הצעות אושרו}}",
+      "declinedToast": "{count, plural, one {ההצעה נדחתה} other {# הצעות נדחו}}",
+      "withdrawnToast": "ההצעה בוטלה",
+      "sentToast": "הוצע: {category}. {owner} יראה/תראה ויחליט/תחליט.",
+      "failed": "זה לא עבד. נסו שוב.",
+      "showAll": "להציג את כל {count}",
+      "showFewer": "להציג פחות",
+      "uncategorized": "ללא קטגוריה",
+      "changeTo": "לשנות ל",
+      "byLine": "{name} · {date}",
+      "pillWaiting": "הצעת {category}. ממתין לאישור.",
+      "pillSuggested": "{name} הציע/ה {category}"
+    },
+    "viewer": {
+      "badge": "צפייה בלבד",
+      "badgeHint": "אפשר להסתכל ולהציע קטגוריות. השינויים בידי הבעלים.",
+      "badgeHintNamed": "אלה ההוצאות של {owner}. אפשר להסתכל ולהציע קטגוריות; {owner} מחליט/ה.",
+      "accountTitle": "מחובר/ת בתור {username}",
+      "accountHint": "יש לך גישת צפייה בלבד. אפשר להציע קטגוריה לכל עסקה, והבעלים מאשר/ת.",
+      "accountHintNamed": "{owner} שיתף/ה איתך את ההוצאות לצפייה. אפשר להציע קטגוריה לכל עסקה, ו{owner} מאשר/ת.",
+      "pageTitle": "החשבון שלך",
+      "pageDescription": "הכניסה שלך, קודי השחזור והדפדפנים שבהם נכנסת."
+    },
+    "invite": {
+      "title": "{owner} שיתף/ה איתך את ההוצאות",
+      "hint": "צרו כניסה משלכם כדי לצפות. תראו את כל מה ששותף ותוכלו להציע קטגוריות, אבל לא לשנות דבר.",
+      "someone": "מישהו",
+      "footer": "רק {owner} יכול/ה לשנות את מה שאתם רואים או להסיר את הגישה שלכם.",
+      "goneTitle": "הקישור הזה כבר לא עובד",
+      "goneHint": "קישורי הזמנה עובדים פעם אחת ופגים אחרי שבוע. בקשו קישור חדש.",
+      "toSignIn": "למסך הכניסה",
+      "signedInTitle": "כבר נכנסת",
+      "signedInHint": "הדפדפן הזה מחובר בתור {name}. צאו כדי להצטרף עם ההזמנה הזו.",
+      "signOutAndJoin": "לצאת ולהמשיך"
+    },
+    "settings": {
+      "title": "שיתוף",
+      "description": "תנו למישהו לראות את ההוצאות שלכם בלי אפשרות לשנות אותן. הוא יכול להציע קטגוריה טובה יותר לעסקה, ואתם מאשרים.",
+      "needsSignInTitle": "קודם צריך להפעיל כניסה",
+      "needsSignInHint": "לכל אחד יש כניסה משלו, כך ש-Spent יודע להבדיל ביניכם ולשמור עליהם בצפייה בלבד.",
+      "needsSignInAction": "להגדיר כניסה",
+      "inviteTitle": "להזמין מישהו",
+      "inviteHint": "צרו קישור ושלחו לו. הוא בוחר שם, סיסמה ואפליקציית אימות משלו.",
+      "labelField": "בשביל מי? (לא חובה)",
+      "labelPlaceholder": "למשל דנה",
+      "workspacesField": "מה הוא יראה",
+      "createLink": "ליצור קישור הזמנה",
+      "linkLabel": "קישור הזמנה",
+      "copy": "להעתיק קישור",
+      "copiedShort": "הועתק",
+      "copied": "הקישור הועתק",
+      "copyFailed": "לא הצלחנו להעתיק. סמנו את הקישור והעתיקו.",
+      "linkNote": "הקישור עובד פעם אחת, למשך {days} ימים. שלחו אותו באופן פרטי: מי שפותח אותו ראשון מקבל גישה. הקישור לא יוצג שוב.",
+      "another": "ליצור עוד אחד",
+      "peopleTitle": "אנשים",
+      "peopleHint": "הקישו על סביבת עבודה כדי לשתף אותה או להפסיק לשתף.",
+      "peopleEmpty": "עדיין אין אף אחד. צרו קישור הזמנה למעלה.",
+      "joined": "הצטרף/ה ב-{date}",
+      "lastActive": "פעיל/ה {when}",
+      "notSignedIn": "לא מחובר/ת",
+      "nothingShared": "כרגע שום דבר לא משותף איתו.",
+      "personMenu": "אפשרויות עבור {name}",
+      "signOutEverywhere": "לנתק אותו מכל המכשירים",
+      "stopSharing": "להפסיק לשתף",
+      "removeTitle": "להפסיק לשתף עם {name}?",
+      "removeHint": "הכניסה שלו תימחק והוא ינותק מכל המכשירים. ההצעות הפתוחות שלו יישארו להחלטתכם. אפשר להזמין אותו שוב בהמשך.",
+      "cancel": "ביטול",
+      "signedOutToast": "{name} נותק/ה מכל המכשירים",
+      "removedToast": "השיתוף עם {name} הופסק",
+      "openTitle": "קישורי הזמנה פתוחים",
+      "openHint": "עדיין לא נעשה בהם שימוש. בטלו קישור אם הוא נשלח לאדם הלא נכון.",
+      "unnamedInvite": "קישור הזמנה",
+      "expires": "פג ב-{date}",
+      "revoke": "לבטל",
+      "revokedToast": "הקישור בוטל",
+      "failed": "זה לא עבד. נסו שוב.",
+      "whatTitle": "מה הם יכולים לעשות",
+      "canSee": "לראות את כל מה שבסביבות העבודה ששיתפתם: עסקאות, תקציבים, תובנות וגרפים.",
+      "canSuggest": "להציע קטגוריה לעסקה. ההצעה מופיעה בדף הבית ובדף העסקאות שלכם לאישור או לדחייה.",
+      "cannot": "הם לא יכולים לסנכרן, לערוך, לקבוע תקציבים, לראות את פרטי הבנק שלכם או להיכנס להגדרות."
     }
   }
 }

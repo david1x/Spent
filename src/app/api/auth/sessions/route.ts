@@ -15,8 +15,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ ended: endOtherSessions(sessionToken(request)) });
   }
   if (typeof body.id === "number" && Number.isInteger(body.id)) {
-    endSessionById(body.id);
-    return NextResponse.json({ ended: 1 });
+    return NextResponse.json({ ended: endSessionById(body.id, sessionToken(request)) });
   }
   return NextResponse.json({ message: "Say which session to end." }, { status: 400 });
 }

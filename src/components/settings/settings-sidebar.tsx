@@ -1,5 +1,7 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -11,6 +13,7 @@ import {
   Layers,
   ShieldAlert,
   LockKeyhole,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -82,6 +85,12 @@ const GROUPS: NavGroup[] = [
         match: (p) => p.startsWith("/settings/security"),
       },
       {
+        href: "/settings/sharing",
+        labelKey: "sharing",
+        Icon: Users,
+        match: (p) => p.startsWith("/settings/sharing"),
+      },
+      {
         href: "/settings/data",
         labelKey: "data",
         Icon: ShieldAlert,
@@ -94,8 +103,11 @@ const GROUPS: NavGroup[] = [
 export function SettingsSidebar() {
   const pathname = usePathname();
   const t = useTranslations("settings.sidebar");
+  // A viewer only has their own account page; nothing to navigate between.
+  const { readOnly } = useAccess();
+  if (readOnly) return null;
   return (
-    <aside className="hidden w-56 shrink-0 border-e border-border/40 bg-card/30 md:flex md:flex-col">
+    <aside className="hidden w-56 shrink-0 border-e border-border/40 bg-card/30 xl:flex xl:flex-col">
       <div className="px-5 pt-6 pb-3">
         <div className="font-serif text-xl leading-none tracking-tight">
           {t("title")}
@@ -141,9 +153,17 @@ export function SettingsSidebar() {
 export function SettingsMobileNav() {
   const pathname = usePathname();
   const t = useTranslations("settings.sidebar");
+  const { readOnly } = useAccess();
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  // The strip scrolls sideways on phones; keep the current page's pill in view.
+  useEffect(() => {
+    const active = stripRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    active?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [pathname]);
+  if (readOnly) return null;
   const allItems = GROUPS.flatMap((g) => g.items);
   return (
-    <div className="-mx-4 overflow-x-auto border-b border-border/40 px-4 md:hidden">
+    <div ref={stripRef} className="-mx-4 overflow-x-auto border-b border-border/40 px-4 xl:hidden">
       <div className="flex gap-1 pb-3 pt-1">
         {allItems.map((item) => {
           const active = item.match(pathname);
@@ -151,6 +171,7 @@ export function SettingsMobileNav() {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={active ? "page" : undefined}
               className={cn(
                 "flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors",
                 active

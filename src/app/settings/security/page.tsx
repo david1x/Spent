@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFormatter, useTranslations } from "next-intl";
 import { toast } from "sonner";
-import { KeyRound, Laptop, Loader2, LogOut, ShieldCheck, ShieldOff } from "lucide-react";
+import { Eye, KeyRound, Laptop, Loader2, LogOut, ShieldCheck, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,17 +54,27 @@ function describeBrowser(ua: string | null): string {
 
 export default function SecuritySettingsPage() {
   const t = useTranslations("auth.settings");
+  const tViewer = useTranslations("sharing.viewer");
   const tCommon = useTranslations("common");
   const queryClient = useQueryClient();
   const { data: status } = useQuery({ queryKey: ["auth-status"], queryFn: getAuthStatus });
   const [enrolling, setEnrolling] = useState(false);
 
   return (
-    <SectionShell title={t("title")} description={t("description")}>
+    <SectionShell
+      title={status?.role === "viewer" ? tViewer("pageTitle") : t("title")}
+      description={status?.role === "viewer" ? tViewer("pageDescription") : t("description")}
+    >
       {!status ? (
         <SettingCard>
           <div className="text-sm text-muted-foreground">{tCommon("loading")}</div>
         </SettingCard>
+      ) : status.role === "viewer" ? (
+        <>
+          <ViewerAccountCard username={status.username ?? ""} ownerName={status.ownerName ?? null} />
+          <RecoveryCard left={status.recoveryCodesLeft ?? 0} />
+          <SessionsCard />
+        </>
       ) : !status.enabled ? (
         <SettingCard>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -89,6 +99,7 @@ export default function SecuritySettingsPage() {
           <TurnOffCard />
         </>
       )}
+      {status?.role === "viewer" ? null : (
       <SettingCard title={t("domainTitle")} description={t("domainHint")}>
         <ul className="list-disc space-y-1 ps-5 text-xs text-muted-foreground">
           <li>{t("domainHttps")}</li>
@@ -98,6 +109,7 @@ export default function SecuritySettingsPage() {
           </li>
         </ul>
       </SettingCard>
+      )}
 
       <Dialog open={enrolling} onOpenChange={setEnrolling}>
         <DialogContent className="max-w-md">
@@ -165,6 +177,44 @@ function SignedInCard({ username, enabledAt }: { username: string; enabledAt: st
         >
           <LogOut className="h-4 w-4" />
           {t("signOut")}
+        </Button>
+      </div>
+    </SettingCard>
+  );
+}
+
+/** A viewer's own account: who they are, whose money this is, and signing out. */
+function ViewerAccountCard({ username, ownerName }: { username: string; ownerName: string | null }) {
+  const t = useTranslations("sharing.viewer");
+  const tAuth = useTranslations("auth.settings");
+  const [busy, setBusy] = useState(false);
+  return (
+    <SettingCard>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <IconTile tone="good">
+          <Eye className="h-4 w-4" />
+        </IconTile>
+        <div className="min-w-0 flex-1 space-y-1">
+          <h3 className="font-medium">{t("accountTitle", { username })}</h3>
+          <p className="text-sm text-muted-foreground">
+            {ownerName ? t("accountHintNamed", { owner: ownerName }) : t("accountHint")}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          className="shrink-0 gap-1.5"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await signOut();
+            } finally {
+              window.location.assign("/login");
+            }
+          }}
+        >
+          <LogOut className="h-4 w-4" />
+          {tAuth("signOut")}
         </Button>
       </div>
     </SettingCard>
@@ -280,7 +330,7 @@ function SessionsCard() {
                 ) : null}
               </div>
               <div className="text-[11px] text-muted-foreground" dir="auto">
-                {t("lastActive", { when: format.relativeTime(sqliteDate(s.lastSeenAt)) })}
+                {t("lastActive", { when: format.relativeTime(sqliteDate(s.lastSeenAt), new Date()) })}
                 {s.ip && s.ip !== "local" ? <span dir="ltr"> · {s.ip}</span> : null}
               </div>
             </div>
@@ -338,7 +388,7 @@ function TurnOffCard() {
   };
 
   return (
-    <SettingCard title={t("offCardTitle")} description={t("offCardHint")}>
+    <SettingCard title={t("offCardTitle")} description={`${t("offCardHint")} ${t("offCardSharing")}`}>
       <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
         <ShieldOff className="h-3.5 w-3.5" />
         {t("turnOff")}

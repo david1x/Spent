@@ -9,8 +9,10 @@ import { generateTotpSecret, matchTotp, otpauthUri } from "./totp";
 /**
  * Optional sign-in for Spent, for when it's reachable from outside this
  * computer (a domain, a reverse proxy). Off by default: a local install has
- * nothing to sign in to. One account: a name, a password and an
- * authenticator app (6-digit codes), plus single-use recovery codes.
+ * nothing to sign in to. The owner's account: a name, a password and an
+ * authenticator app (6-digit codes), plus single-use recovery codes. The owner
+ * can invite viewers (see ./sharing.ts), who sign in the same way, see only
+ * the workspaces shared with them and can't change anything.
  *
  * `SPENT_AUTH_REQUIRED=1` makes a fresh install ask for the account before
  * anything else, so a server reachable from the internet is never open, even
@@ -45,7 +47,10 @@ export type AuthErrorCode =
   | "already_enabled"
   | "not_enabled"
   | "weak_password"
-  | "invalid_username";
+  | "invalid_username"
+  | "name_taken"
+  | "invite_invalid"
+  | "invalid_request";
 
 export class AuthError extends Error {
   constructor(
@@ -65,6 +70,7 @@ export class AuthError extends Error {
 interface PendingLogin {
   expires: number;
   tries: number;
+  account: Account;
 }
 interface PendingEnrollment {
   expires: number;
@@ -72,6 +78,8 @@ interface PendingEnrollment {
   username: string;
   passwordHash: string;
   secret: string;
+  /** Set when a viewer is joining through an invite link. */
+  inviteHash?: string;
 }
 interface Counter {
   count: number;
@@ -180,54 +188,93 @@ function newRecoveryCodes(): string[] {
 
 const normalizeRecovery = (code: string) => code.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-function storeRecoveryCodes(codes: string[]): void {
-  setGlobalSetting(KEYS.recoveryCodes, JSON.stringify(codes.map((c) => sha256(normalizeRecovery(c)))));
+const hashRecoveryCodes = (codes: string[]) => codes.map((c) => sha256(normalizeRecovery(c)));
+
+function sealSecret(secret: string): string {
+  const { encrypted, iv, authTag } = encrypt(secret);
+  return JSON.stringify({ e: encrypted.toString("base64"), i: iv.toString("base64"), t: authTag.toString("base64") });
 }
 
-function recoveryHashes(): string[] {
+function openSecret(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const { e, i, t } = JSON.parse(raw) as { e: string; i: string; t: string };
+  return decrypt({ encrypted: Buffer.from(e, "base64"), iv: Buffer.from(i, "base64"), authTag: Buffer.from(t, "base64") });
+}
+
+function parseHashes(raw: string | null | undefined): string[] {
   try {
-    return JSON.parse(getGlobalSetting(KEYS.recoveryCodes) ?? "[]") as string[];
+    const parsed = JSON.parse(raw ?? "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((h): h is string => typeof h === "string") : [];
   } catch {
     return [];
   }
 }
 
-function storeSecret(secret: string): void {
-  const { encrypted, iv, authTag } = encrypt(secret);
-  setGlobalSetting(
-    KEYS.totpSecret,
-    JSON.stringify({ e: encrypted.toString("base64"), i: iv.toString("base64"), t: authTag.toString("base64") })
-  );
+// ---------------------------------------------------------------------------
+// Accounts: the owner (kept in settings) or a viewer (a row in `viewers`).
+
+export type Account = { kind: "owner" } | { kind: "viewer"; id: number };
+
+const OWNER: Account = { kind: "owner" };
+
+/** Where an account's authenticator secret and recovery codes live. */
+interface Factors {
+  secret(): string | null;
+  lastStep(): number;
+  setLastStep(step: number): void;
+  recovery(): string[];
+  setRecovery(hashes: string[]): void;
 }
 
-function readSecret(): string | null {
-  const raw = getGlobalSetting(KEYS.totpSecret);
-  if (!raw) return null;
-  const { e, i, t } = JSON.parse(raw) as { e: string; i: string; t: string };
-  return decrypt({ encrypted: Buffer.from(e, "base64"), iv: Buffer.from(i, "base64"), authTag: Buffer.from(t, "base64") });
+function factorsFor(account: Account): Factors {
+  if (account.kind === "owner") {
+    return {
+      secret: () => openSecret(getGlobalSetting(KEYS.totpSecret)),
+      lastStep: () => Number(getGlobalSetting(KEYS.totpLastStep) ?? -1),
+      setLastStep: (step) => setGlobalSetting(KEYS.totpLastStep, String(step)),
+      recovery: () => parseHashes(getGlobalSetting(KEYS.recoveryCodes)),
+      setRecovery: (hashes) => setGlobalSetting(KEYS.recoveryCodes, JSON.stringify(hashes)),
+    };
+  }
+  const db = getDb();
+  const row = () =>
+    db.prepare("SELECT totp_secret, totp_last_step, recovery_codes FROM viewers WHERE id = ?").get(account.id) as
+      | { totp_secret: string; totp_last_step: number; recovery_codes: string }
+      | undefined;
+  return {
+    secret: () => openSecret(row()?.totp_secret),
+    lastStep: () => row()?.totp_last_step ?? -1,
+    setLastStep: (step) => {
+      db.prepare("UPDATE viewers SET totp_last_step = ? WHERE id = ?").run(step, account.id);
+    },
+    recovery: () => parseHashes(row()?.recovery_codes),
+    setRecovery: (hashes) => {
+      db.prepare("UPDATE viewers SET recovery_codes = ? WHERE id = ?").run(JSON.stringify(hashes), account.id);
+    },
+  };
 }
 
 /**
  * Checks a 6-digit authenticator code, or else a recovery code (used up on
  * success). A 6-digit code is never also tried as a recovery code.
  */
-function checkSecondFactor(code: string): "totp" | "recovery" | null {
+function checkSecondFactor(account: Account, code: string): "totp" | "recovery" | null {
+  const factors = factorsFor(account);
   const trimmed = code.trim();
   if (/^\d[\d\s]*$/.test(trimmed)) {
-    const secret = readSecret();
+    const secret = factors.secret();
     if (!secret) return null;
-    const lastStep = Number(getGlobalSetting(KEYS.totpLastStep) ?? -1);
-    const step = matchTotp(secret, trimmed, lastStep);
+    const step = matchTotp(secret, trimmed, factors.lastStep());
     if (step == null) return null;
-    setGlobalSetting(KEYS.totpLastStep, String(step));
+    factors.setLastStep(step);
     return "totp";
   }
   const hash = sha256(normalizeRecovery(trimmed));
-  const hashes = recoveryHashes();
+  const hashes = factors.recovery();
   const index = hashes.findIndex((h) => crypto.timingSafeEqual(Buffer.from(h), Buffer.from(hash)));
   if (index < 0) return null;
   hashes.splice(index, 1);
-  setGlobalSetting(KEYS.recoveryCodes, JSON.stringify(hashes));
+  factors.setRecovery(hashes);
   return "recovery";
 }
 
@@ -247,22 +294,32 @@ export function isAuthEnforced(): boolean {
   return isAuthEnabled() || isAuthRequiredByEnv();
 }
 
+export function ownerName(): string | null {
+  return isAuthEnabled() ? getGlobalSetting(KEYS.username) : null;
+}
+
 export interface AuthStatus {
   enabled: boolean;
   requiredByServer: boolean;
+  role: "owner" | "viewer";
   username: string | null;
+  /** The owner's name, for a viewer ("shared by ..."). */
+  ownerName: string | null;
   enabledAt: string | null;
   recoveryCodesLeft: number;
 }
 
-export function getAuthStatus(): AuthStatus {
+/** What the signed-in account (or, with sign-in off, the owner) may know about itself. */
+export function getAuthStatus(access: Access): AuthStatus {
   const enabled = isAuthEnabled();
   return {
     enabled,
     requiredByServer: isAuthRequiredByEnv(),
-    username: enabled ? getGlobalSetting(KEYS.username) : null,
+    role: access.role,
+    username: access.role === "viewer" ? access.username : ownerName(),
+    ownerName: ownerName(),
     enabledAt: enabled ? getGlobalSetting(KEYS.enabledAt) : null,
-    recoveryCodesLeft: enabled ? recoveryHashes().length : 0,
+    recoveryCodesLeft: enabled ? factorsFor(accountOf(access)).recovery().length : 0,
   };
 }
 
@@ -274,35 +331,74 @@ export interface ClientInfo {
   userAgent: string | null;
 }
 
-function createSession(client: ClientInfo): string {
+const viewerIdOf = (account: Account): number | null => (account.kind === "viewer" ? account.id : null);
+
+function createSession(client: ClientInfo, account: Account): string {
   const token = crypto.randomBytes(32).toString("base64url");
   getDb()
     .prepare(
-      `INSERT INTO auth_sessions (token_hash, expires_at, user_agent, ip)
-       VALUES (?, datetime('now', ?), ?, ?)`
+      `INSERT INTO auth_sessions (token_hash, expires_at, user_agent, ip, viewer_id)
+       VALUES (?, datetime('now', ?), ?, ?, ?)`
     )
-    .run(sha256(token), `+${SESSION_DAYS} days`, client.userAgent?.slice(0, 300) ?? null, client.ip);
+    .run(sha256(token), `+${SESSION_DAYS} days`, client.userAgent?.slice(0, 300) ?? null, client.ip, viewerIdOf(account));
   return token;
 }
 
-/** True when the token belongs to a live session. Extends it while in use. */
-export function validateSession(token: string | undefined | null): boolean {
-  if (!token) return false;
+/** Who a request is: the owner, or a viewer and the workspaces they may see. */
+export type Access =
+  | { role: "owner"; username: string | null }
+  | { role: "viewer"; viewerId: number; username: string; workspaceIds: number[] };
+
+/** The live session behind a token, extended while in use; null when there isn't one. */
+export function sessionAccess(token: string | undefined | null): Access | null {
+  if (!token) return null;
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT id, last_seen_at < datetime('now', '-10 minutes') AS stale
-       FROM auth_sessions WHERE token_hash = ? AND expires_at > datetime('now')`
+      `SELECT s.id, s.viewer_id, v.username AS viewer_name,
+              s.last_seen_at < datetime('now', '-10 minutes') AS stale
+       FROM auth_sessions s LEFT JOIN viewers v ON v.id = s.viewer_id
+       WHERE s.token_hash = ? AND s.expires_at > datetime('now')`
     )
-    .get(sha256(token)) as { id: number; stale: number } | undefined;
-  if (!row) return false;
+    .get(sha256(token)) as { id: number; viewer_id: number | null; viewer_name: string | null; stale: number } | undefined;
+  if (!row) return null;
+  if (row.viewer_id != null && row.viewer_name == null) return null;
   // Written at most every 10 minutes, so polling doesn't turn into writes.
   if (row.stale) {
     db.prepare(
       `UPDATE auth_sessions SET last_seen_at = datetime('now'), expires_at = datetime('now', ?) WHERE id = ?`
     ).run(`+${SESSION_DAYS} days`, row.id);
   }
-  return true;
+  if (row.viewer_id == null) return { role: "owner", username: getGlobalSetting(KEYS.username) };
+  const workspaceIds = (
+    db
+      .prepare("SELECT workspace_id FROM viewer_workspaces WHERE viewer_id = ? ORDER BY workspace_id")
+      .all(row.viewer_id) as { workspace_id: number }[]
+  ).map((r) => r.workspace_id);
+  return { role: "viewer", viewerId: row.viewer_id, username: row.viewer_name ?? "", workspaceIds };
+}
+
+/** True when the token belongs to a live session. Extends it while in use. */
+export function validateSession(token: string | undefined | null): boolean {
+  return sessionAccess(token) != null;
+}
+
+/**
+ * What a request may do. With sign-in off everyone is the owner; with it on,
+ * only a live session counts (null means signed out).
+ */
+export function accessFor(token: string | undefined | null): Access | null {
+  if (!isAuthEnforced()) return { role: "owner", username: null };
+  return sessionAccess(token);
+}
+
+function accountOf(access: Access): Account {
+  return access.role === "viewer" ? { kind: "viewer", id: access.viewerId } : OWNER;
+}
+
+function sessionAccount(token: string | undefined | null): Account | null {
+  const access = sessionAccess(token);
+  return access ? accountOf(access) : null;
 }
 
 export function endSession(token: string | undefined | null): void {
@@ -319,14 +415,17 @@ export interface SessionInfo {
   current: boolean;
 }
 
+/** The signed-in account's own sessions (a viewer never sees the owner's). */
 export function listSessions(currentToken: string | undefined | null): SessionInfo[] {
+  const account = sessionAccount(currentToken);
+  if (!account) return [];
   const currentHash = currentToken ? sha256(currentToken) : "";
   const rows = getDb()
     .prepare(
       `SELECT id, token_hash, created_at, last_seen_at, user_agent, ip FROM auth_sessions
-       WHERE expires_at > datetime('now') ORDER BY last_seen_at DESC`
+       WHERE expires_at > datetime('now') AND viewer_id IS ? ORDER BY last_seen_at DESC`
     )
-    .all() as {
+    .all(viewerIdOf(account)) as {
     id: number;
     token_hash: string;
     created_at: string;
@@ -344,14 +443,20 @@ export function listSessions(currentToken: string | undefined | null): SessionIn
   }));
 }
 
-export function endSessionById(id: number): void {
-  getDb().prepare("DELETE FROM auth_sessions WHERE id = ?").run(id);
+export function endSessionById(id: number, currentToken: string | undefined | null): number {
+  const account = sessionAccount(currentToken);
+  if (!account) return 0;
+  return getDb()
+    .prepare("DELETE FROM auth_sessions WHERE id = ? AND viewer_id IS ?")
+    .run(id, viewerIdOf(account)).changes;
 }
 
 export function endOtherSessions(currentToken: string | undefined | null): number {
+  const account = sessionAccount(currentToken);
+  if (!account || !currentToken) return 0;
   return getDb()
-    .prepare("DELETE FROM auth_sessions WHERE token_hash != ?")
-    .run(currentToken ? sha256(currentToken) : "").changes;
+    .prepare("DELETE FROM auth_sessions WHERE token_hash != ? AND viewer_id IS ?")
+    .run(sha256(currentToken), viewerIdOf(account)).changes;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,15 +466,22 @@ export function beginLogin(username: string, password: string, client: ClientInf
   sweep(memory().logins);
   assertNotLimited(client.ip);
   if (!isAuthEnabled()) throw new AuthError("not_enabled", "Sign-in isn't set up yet.");
-  const storedName = getGlobalSetting(KEYS.username) ?? "";
-  const nameOk = storedName.toLowerCase() === username.trim().toLowerCase();
-  const passwordOk = verifyPassword(password, getGlobalSetting(KEYS.passwordHash));
-  if (!nameOk || !passwordOk) {
+  const name = username.trim();
+  const isOwner = (getGlobalSetting(KEYS.username) ?? "").toLowerCase() === name.toLowerCase();
+  const viewer = isOwner
+    ? undefined
+    : (getDb().prepare("SELECT id, password_hash FROM viewers WHERE username = ?").get(name) as
+        | { id: number; password_hash: string }
+        | undefined);
+  const stored = isOwner ? getGlobalSetting(KEYS.passwordHash) : (viewer?.password_hash ?? null);
+  const passwordOk = verifyPassword(password, stored);
+  if (!passwordOk || (!isOwner && !viewer)) {
     recordFailure(client.ip);
     throw new AuthError("invalid_credentials", "That name and password don't match.", 401);
   }
+  const account: Account = viewer ? { kind: "viewer", id: viewer.id } : OWNER;
   const ticket = crypto.randomBytes(24).toString("base64url");
-  memory().logins.set(ticket, { expires: Date.now() + PENDING_MINUTES * 60_000, tries: 0 });
+  memory().logins.set(ticket, { expires: Date.now() + PENDING_MINUTES * 60_000, tries: 0, account });
   return ticket;
 }
 
@@ -382,7 +494,7 @@ export function finishLogin(
   assertNotLimited(client.ip);
   const pending = memory().logins.get(ticket);
   if (!pending) throw new AuthError("expired", "That took too long. Sign in again.", 401);
-  const factor = checkSecondFactor(code);
+  const factor = checkSecondFactor(pending.account, code);
   if (!factor) {
     recordFailure(client.ip);
     if (++pending.tries >= MAX_CODE_TRIES) memory().logins.delete(ticket);
@@ -391,9 +503,9 @@ export function finishLogin(
   memory().logins.delete(ticket);
   clearFailures(client.ip);
   return {
-    token: createSession(client),
+    token: createSession(client, pending.account),
     usedRecoveryCode: factor === "recovery",
-    recoveryCodesLeft: recoveryHashes().length,
+    recoveryCodesLeft: factorsFor(pending.account).recovery().length,
   };
 }
 
@@ -413,12 +525,12 @@ export function validateNewAccount(username: string, password: string): void {
   }
 }
 
-export function beginEnrollment(
+function startEnrollment(
   username: string,
-  password: string
+  password: string,
+  inviteHash?: string
 ): { enrollmentId: string; secret: string; uri: string } {
   sweep(memory().enrollments);
-  if (isAuthEnabled()) throw new AuthError("already_enabled", "Sign-in is already on.", 409);
   validateNewAccount(username, password);
   const secret = generateTotpSecret();
   const enrollmentId = crypto.randomBytes(24).toString("base64url");
@@ -428,20 +540,37 @@ export function beginEnrollment(
     username: username.trim(),
     passwordHash: hashPassword(password),
     secret,
+    inviteHash,
   });
   return { enrollmentId, secret, uri: otpauthUri(secret, username.trim()) };
 }
 
-export function finishEnrollment(
+/** The owner turning sign-in on. */
+export function beginEnrollment(
+  username: string,
+  password: string
+): { enrollmentId: string; secret: string; uri: string } {
+  if (isAuthEnabled()) throw new AuthError("already_enabled", "Sign-in is already on.", 409);
+  return startEnrollment(username, password);
+}
+
+/**
+ * Takes the pending enrollment if the code matches it (counting a miss).
+ * `forInvite` keeps an owner enrollment and an invite enrollment from being
+ * finished through each other's endpoint.
+ */
+function takeEnrollment(
   enrollmentId: string,
   code: string,
-  client: ClientInfo
-): { token: string; recoveryCodes: string[] } {
+  client: ClientInfo,
+  forInvite: boolean
+): { pending: PendingEnrollment; step: number } {
   sweep(memory().enrollments);
   assertNotLimited(client.ip);
-  if (isAuthEnabled()) throw new AuthError("already_enabled", "Sign-in is already on.", 409);
   const pending = memory().enrollments.get(enrollmentId);
-  if (!pending) throw new AuthError("expired", "That took too long. Start again.", 400);
+  if (!pending || Boolean(pending.inviteHash) !== forInvite) {
+    throw new AuthError("expired", "That took too long. Start again.", 400);
+  }
   const step = matchTotp(pending.secret, code);
   if (step == null) {
     recordFailure(client.ip);
@@ -449,38 +578,134 @@ export function finishEnrollment(
     throw new AuthError("invalid_code", "That code didn't match. Check the time on your phone and try the newest code.");
   }
   memory().enrollments.delete(enrollmentId);
+  return { pending, step };
+}
+
+export function finishEnrollment(
+  enrollmentId: string,
+  code: string,
+  client: ClientInfo
+): { token: string; recoveryCodes: string[] } {
+  if (isAuthEnabled()) throw new AuthError("already_enabled", "Sign-in is already on.", 409);
+  const { pending, step } = takeEnrollment(enrollmentId, code, client, false);
 
   const recoveryCodes = newRecoveryCodes();
   const db = getDb();
   db.transaction(() => {
     setGlobalSetting(KEYS.username, pending.username);
     setGlobalSetting(KEYS.passwordHash, pending.passwordHash);
-    storeSecret(pending.secret);
+    setGlobalSetting(KEYS.totpSecret, sealSecret(pending.secret));
     setGlobalSetting(KEYS.totpLastStep, String(step));
-    storeRecoveryCodes(recoveryCodes);
+    setGlobalSetting(KEYS.recoveryCodes, JSON.stringify(hashRecoveryCodes(recoveryCodes)));
     setGlobalSetting(KEYS.enabledAt, new Date().toISOString());
     db.prepare("DELETE FROM auth_sessions").run();
     setGlobalSetting(KEYS.enabled, "1");
   })();
-  return { token: createSession(client), recoveryCodes };
+  return { token: createSession(client, OWNER), recoveryCodes };
+}
+
+// ---------------------------------------------------------------------------
+// Joining through an invite link (./sharing.ts makes them).
+
+export const hashInviteToken = (token: string) => sha256(`invite:${token}`);
+
+interface InviteRow {
+  id: number;
+  workspace_ids: string;
+}
+
+const USABLE_INVITE_SQL = `SELECT id, workspace_ids FROM share_invites
+  WHERE token_hash = ? AND used_at IS NULL AND expires_at > datetime('now')`;
+
+/** The unused, unexpired invite behind a link token, or null. */
+export function findUsableInvite(token: string): InviteRow | null {
+  if (!token || !isAuthEnabled()) return null;
+  return (getDb().prepare(USABLE_INVITE_SQL).get(hashInviteToken(token)) as InviteRow | undefined) ?? null;
+}
+
+function assertNameFree(username: string): void {
+  const name = username.trim();
+  const taken =
+    (getGlobalSetting(KEYS.username) ?? "").toLowerCase() === name.toLowerCase() ||
+    getDb().prepare("SELECT 1 FROM viewers WHERE username = ?").get(name) != null;
+  if (taken) throw new AuthError("name_taken", "That name is taken. Choose another.", 409);
+}
+
+const INVITE_GONE = () => new AuthError("invite_invalid", "This invite link has expired or was already used.", 410);
+
+export function beginViewerEnrollment(
+  inviteToken: string,
+  username: string,
+  password: string
+): { enrollmentId: string; secret: string; uri: string } {
+  if (!findUsableInvite(inviteToken)) throw INVITE_GONE();
+  validateNewAccount(username, password);
+  assertNameFree(username);
+  return startEnrollment(username, password, hashInviteToken(inviteToken));
+}
+
+export function finishViewerEnrollment(
+  enrollmentId: string,
+  code: string,
+  client: ClientInfo
+): { token: string; recoveryCodes: string[] } {
+  const { pending, step } = takeEnrollment(enrollmentId, code, client, true);
+  const recoveryCodes = newRecoveryCodes();
+  const db = getDb();
+  const viewerId = db.transaction(() => {
+    const invite = db.prepare(USABLE_INVITE_SQL).get(pending.inviteHash) as InviteRow | undefined;
+    if (!invite || !isAuthEnabled()) throw INVITE_GONE();
+    assertNameFree(pending.username);
+    const id = Number(
+      db
+        .prepare(
+          `INSERT INTO viewers (username, password_hash, totp_secret, totp_last_step, recovery_codes)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .run(
+          pending.username,
+          pending.passwordHash,
+          sealSecret(pending.secret),
+          step,
+          JSON.stringify(hashRecoveryCodes(recoveryCodes))
+        ).lastInsertRowid
+    );
+    const share = db.prepare(
+      "INSERT OR IGNORE INTO viewer_workspaces (viewer_id, workspace_id) SELECT ?, id FROM workspaces WHERE id = ?"
+    );
+    for (const workspaceId of parseIds(invite.workspace_ids)) share.run(id, workspaceId);
+    db.prepare("UPDATE share_invites SET used_at = datetime('now'), viewer_id = ? WHERE id = ?").run(id, invite.id);
+    return id;
+  })();
+  return { token: createSession(client, { kind: "viewer", id: viewerId }), recoveryCodes };
+}
+
+export function parseIds(raw: string): number[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((n): n is number => Number.isInteger(n) && n > 0) : [];
+  } catch {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Managing it, from a signed-in session.
 
-function confirmWithCode(code: string, client: ClientInfo): void {
+function confirmWithCode(account: Account, code: string, client: ClientInfo): void {
   assertNotLimited(client.ip);
-  if (!checkSecondFactor(code)) {
+  if (!checkSecondFactor(account, code)) {
     recordFailure(client.ip);
     throw new AuthError("invalid_code", "That code didn't work.", 401);
   }
 }
 
-export function regenerateRecoveryCodes(code: string, client: ClientInfo): string[] {
+export function regenerateRecoveryCodes(access: Access, code: string, client: ClientInfo): string[] {
   if (!isAuthEnabled()) throw new AuthError("not_enabled", "Sign-in is off.");
-  confirmWithCode(code, client);
+  const account = accountOf(access);
+  confirmWithCode(account, code, client);
   const codes = newRecoveryCodes();
-  storeRecoveryCodes(codes);
+  factorsFor(account).setRecovery(hashRecoveryCodes(codes));
   return codes;
 }
 
@@ -491,10 +716,13 @@ export function disableAuth(password: string, code: string, client: ClientInfo):
     recordFailure(client.ip);
     throw new AuthError("invalid_credentials", "That password isn't right.", 401);
   }
-  confirmWithCode(code, client);
+  confirmWithCode(OWNER, code, client);
   const db = getDb();
+  // With sign-in off nobody can be told apart, so sharing ends too.
   db.transaction(() => {
     for (const key of Object.values(KEYS)) deleteGlobalSetting(key);
     db.prepare("DELETE FROM auth_sessions").run();
+    db.prepare("DELETE FROM share_invites").run();
+    db.prepare("DELETE FROM viewers").run();
   })();
 }

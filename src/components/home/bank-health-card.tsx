@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,9 @@ interface Props {
 
 export function BankHealthCard({ items }: Props) {
   const t = useTranslations("home");
+  const { readOnly } = useAccess();
+  // Connecting and fixing banks happens in Settings, which a viewer doesn't have.
+  if (readOnly) return null;
   return (
     <div id="bank-health" className="contents">
       <CardShell

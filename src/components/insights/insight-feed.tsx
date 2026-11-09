@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
 import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -63,6 +64,7 @@ export function InsightFeed({
   aiProvider: "claude" | "ollama" | null;
 }) {
   const t = useTranslations("insights");
+  const { readOnly } = useAccess();
   const [expanded, setExpanded] = useState(false);
   const queryClient = useQueryClient();
   const shown = expanded ? feed : feed.slice(0, VISIBLE);
@@ -83,7 +85,7 @@ export function InsightFeed({
 
   return (
     <CardShell label={t("feed.label")} action={feed.length > 0 ? t("feed.count", { count: feed.length }) : undefined}>
-      {aiProvider ? <AiSummary provider={aiProvider} /> : null}
+      {aiProvider && !readOnly ? <AiSummary provider={aiProvider} /> : null}
       {feed.length === 0 ? (
         <div className="flex items-center gap-2.5 py-2 text-[13px] text-muted-foreground">
           <CircleCheck className="size-4 text-[var(--status-on-track)]" aria-hidden />
@@ -96,6 +98,7 @@ export function InsightFeed({
               key={insight.id}
               insight={insight}
               busy={feedback.isPending && feedback.variables?.key === insight.id}
+              readOnly={readOnly}
               onAction={(action, key, days) => feedback.mutate({ key: key ?? insight.id, action, days })}
             />
           ))}
@@ -113,7 +116,7 @@ export function InsightFeed({
         ) : (
           <span />
         )}
-        {hiddenCount > 0 ? (
+        {hiddenCount > 0 && !readOnly ? (
           <button
             type="button"
             className="inline-flex items-center gap-1.5 rounded-sm underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
@@ -132,10 +135,13 @@ export function InsightFeed({
 function FeedItem({
   insight,
   busy,
+  readOnly,
   onAction,
 }: {
   insight: Insight;
   busy: boolean;
+  /** A viewer can follow the link, not snooze or dismiss the owner's feed. */
+  readOnly: boolean;
   onAction: (action: InsightFeedbackAction, key?: string, days?: number) => void;
 }) {
   const t = useTranslations("insights");
@@ -161,6 +167,8 @@ function FeedItem({
               <ArrowUpRight className="size-3.5 rtl:-scale-x-100" aria-hidden />
             </Link>
           ) : null}
+          {readOnly ? null : (
+            <>
           {insight.feedback ? (
             <ActionButton onClick={() => onAction(insight.feedback!.action, insight.feedback!.key)}>
               {t(`feed.${insight.feedback.action}` as "feed.not_recurring")}
@@ -172,6 +180,8 @@ function FeedItem({
           <ActionButton onClick={() => onAction("dismissed")} icon={<X className="size-3.5" aria-hidden />}>
             {t("feed.dismiss")}
           </ActionButton>
+            </>
+          )}
         </div>
       </div>
     </li>

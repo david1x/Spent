@@ -8,6 +8,7 @@ import {
   ArrowLeftRight,
   CalendarClock,
   Check,
+  Clock,
   Eye,
   EyeOff,
   History,
@@ -16,6 +17,7 @@ import {
   Pencil,
   PiggyBank,
   Tag,
+  Undo2,
   X,
 } from "lucide-react";
 import {
@@ -41,6 +43,7 @@ import {
   setTransactionKind,
   trackAsSubscription,
   updateTransactionCategory,
+  suggestCategory,
   updateTransactionText,
 } from "@/lib/api";
 import { translateCategoryName } from "@/lib/i18n-data";
@@ -62,6 +65,12 @@ import {
 } from "@/components/transactions/transaction-text-dialog";
 import { isRenamed, transactionName } from "@/lib/transaction-name";
 import { BudgetEditDialog } from "@/components/budget/budget-edit-popover";
+import { useAccess } from "@/components/access-provider";
+import {
+  CATEGORY_REQUESTS_KEY,
+  useCategoryRequestActions,
+  useCategoryRequests,
+} from "@/components/sharing/category-requests";
 import type { RecurringCadence } from "@/lib/insights-types";
 
 /** Frequencies offered when tracking a transaction as a subscription, most common first. */
@@ -70,6 +79,7 @@ import type { SortOrder, TransactionSortField } from "@/lib/transaction-sort";
 import { cn } from "@/lib/utils";
 import type {
   Category,
+  CategoryRequest,
   TransactionListAggregates,
   TransactionWithCategory,
 } from "@/lib/types";
@@ -286,16 +296,18 @@ export function TransactionsTable({
         >
           {/* Desktop and tablet: a real table. */}
           <div className="hidden overflow-x-auto rounded-t-2xl md:block">
-            <table className="w-full min-w-[760px] border-collapse text-[13.5px]">
+            <table className="w-full min-w-[600px] border-collapse text-[13.5px] xl:min-w-[760px]">
               <thead>
                 <tr className="border-b border-border">
                   <th scope="col" className={cn(TABLE_HEAD_CLASS, "w-10 pe-0")}>
-                    <RowCheckbox
-                      checked={allOnPageSelected}
-                      indeterminate={selectedRows.length > 0 && !allOnPageSelected}
-                      onToggle={toggleAll}
-                      label={t("selectAllRows")}
-                    />
+                    {actions.readOnly ? null : (
+                      <RowCheckbox
+                        checked={allOnPageSelected}
+                        indeterminate={selectedRows.length > 0 && !allOnPageSelected}
+                        onToggle={toggleAll}
+                        label={t("selectAllRows")}
+                      />
+                    )}
                   </th>
                   {grouped ? (
                     <th
@@ -339,7 +351,7 @@ export function TransactionsTable({
                   <SortableTableHead
                     label={t("headerAccount")}
                     field="account"
-                    className="w-[190px]"
+                    className="hidden w-[190px] xl:table-cell"
                     {...sortProps}
                   />
                   <SortableTableHead
@@ -497,8 +509,12 @@ export function TransactionsTable({
  */
 export function useTransactionRowActions() {
   const t = useTranslations("transactions");
+  const tShare = useTranslations("sharing.requests");
   const tCat = useTranslations("categoriesSeeded");
   const queryClient = useQueryClient();
+  const { readOnly, ownerName } = useAccess();
+  const { byTransaction } = useCategoryRequests();
+  const requestActions = useCategoryRequestActions();
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [historyId, setHistoryId] = useState<number | null>(null);
 
@@ -580,6 +596,10 @@ export function useTransactionRowActions() {
   };
 
   const actions: RowActions = {
+    readOnly,
+    pendingFor: (txn) => byTransaction.get(txn.id),
+    decideRequest: (req, decision) => requestActions.decide.mutate({ ids: [req.id], decision }),
+    withdrawRequest: (req) => requestActions.withdraw.mutate(req.id),
     openHistory: (txn) => setHistoryId(txn.id),
     editText: (txn) => setEditingTxn(txn),
     editBudget: (txn) =>
@@ -594,6 +614,17 @@ export function useTransactionRowActions() {
         .catch(() => toast.error(t("actionFailed"))),
     changeCategory: (txn, categoryId) =>
       void (async () => {
+        if (readOnly) {
+          // A viewer can't change it; the owner gets a suggestion to approve.
+          const ok = await runRowAction(txn.id, () => suggestCategory(txn.id, categoryId));
+          if (ok) {
+            void queryClient.invalidateQueries({ queryKey: CATEGORY_REQUESTS_KEY });
+            toast.success(
+              tShare("sentToast", { category: categoryNameFor(categoryId), owner: ownerName ?? tShare("theOwner") })
+            );
+          }
+          return;
+        }
         let others = 0;
         const ok = await runRowAction(txn.id, async () => {
           const res = await updateTransactionCategory(txn.id, categoryId);
@@ -700,6 +731,11 @@ export function TransactionRowList({
 }
 
 interface RowActions {
+  /** A viewer: no edits, and a category pick becomes a suggestion for the owner. */
+  readOnly: boolean;
+  pendingFor: (txn: TransactionWithCategory) => CategoryRequest | undefined;
+  decideRequest: (req: CategoryRequest, decision: "approve" | "decline") => void;
+  withdrawRequest: (req: CategoryRequest) => void;
   openHistory: (txn: TransactionWithCategory) => void;
   editText: (txn: TransactionWithCategory) => void;
   editBudget: (txn: TransactionWithCategory) => void;
@@ -752,11 +788,13 @@ function DesktopRow({
       )}
     >
       <td className="w-10 py-2.5 ps-3.5 pe-0 align-middle">
-        <RowCheckbox
-          checked={selected}
-          onToggle={onToggleSelected}
-          label={t("selectRow", { merchant: transactionName(txn) })}
-        />
+        {actions.readOnly ? null : (
+          <RowCheckbox
+            checked={selected}
+            onToggle={onToggleSelected}
+            label={t("selectRow", { merchant: transactionName(txn) })}
+          />
+        )}
       </td>
       {showDate ? (
         <td className="px-3.5 py-2.5 align-middle text-[13px] tabular-nums whitespace-nowrap text-muted-foreground">
@@ -775,6 +813,14 @@ function DesktopRow({
         >
           <MerchantText txn={txn} t={t} muted={reason !== null} />
         </button>
+        {/* Narrower screens drop the Account column; the bank mark moves here. */}
+        <AccountMark
+          provider={txn.provider}
+          accountLabel={txn.accountLabel}
+          accountNumber={txn.accountNumber}
+          size="sm"
+          className="mt-0.5 text-xs text-muted-foreground xl:hidden"
+        />
       </td>
       <td className="px-3.5 py-2.5 align-middle">
         <div className="flex flex-wrap items-center gap-1">
@@ -789,14 +835,15 @@ function DesktopRow({
           >
             <RowCategoryChip txn={txn} reason={reason} t={t} tCat={tCat} />
           </CategoryMenu>
-          {txn.needsReview && txn.categoryName ? (
+          {txn.needsReview && txn.categoryName && !actions.readOnly ? (
             <ApproveButton txn={txn} t={t} actions={actions} disabled={busy} />
           ) : null}
+          <PendingRequestPill txn={txn} actions={actions} tCat={tCat} />
         </div>
       </td>
       <td
         className={cn(
-          "max-w-[190px] px-3.5 py-2.5 align-middle text-[13px]",
+          "hidden max-w-[190px] px-3.5 py-2.5 align-middle text-[13px] xl:table-cell",
           reason !== null && "text-muted-foreground"
         )}
       >
@@ -823,7 +870,7 @@ function DesktopRow({
           >
             <Tag className="h-4 w-4" />
           </CategoryMenu>
-          {canToggleCount ? (
+          {canToggleCount && !actions.readOnly ? (
             <button
               type="button"
               className={ICON_BUTTON_CLASS}
@@ -874,7 +921,7 @@ function MobileRow({
         busy && "opacity-60"
       )}
     >
-      {selectable ? (
+      {selectable && !actions.readOnly ? (
         <div className="pt-0.5">
           <RowCheckbox
             checked={selected}
@@ -914,9 +961,10 @@ function MobileRow({
           >
             <RowCategoryChip txn={txn} reason={reason} t={t} tCat={tCat} />
           </CategoryMenu>
-          {txn.needsReview && txn.categoryName ? (
+          {txn.needsReview && txn.categoryName && !actions.readOnly ? (
             <ApproveButton txn={txn} t={t} actions={actions} disabled={busy} />
           ) : null}
+          <PendingRequestPill txn={txn} actions={actions} tCat={tCat} compact />
           <AccountMark
             provider={txn.provider}
             accountLabel={txn.accountLabel}
@@ -1128,6 +1176,27 @@ function CategoryMenuItems({ txn, t, tCat, categories, actions }: Omit<MenuBaseP
   const currentName = txn.categoryName
     ? translateCategoryName(txn.categoryName, tCat)
     : null;
+  if (actions.readOnly) {
+    return (
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>{t("suggestCategoryLabel")}</DropdownMenuLabel>
+        {categories.map((cat) => (
+          <DropdownMenuItem
+            key={cat.id}
+            disabled={cat.id === txn.categoryId}
+            onClick={() => {
+              if (cat.id !== txn.categoryId) actions.changeCategory(txn, cat.id);
+            }}
+          >
+            <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: cat.color }} />
+            <span className="min-w-0 flex-1 truncate">{translateCategoryName(cat.name, tCat)}</span>
+            {cat.id === txn.categoryId ? <Check className="h-3.5 w-3.5 text-muted-foreground" /> : null}
+            {actions.pendingFor(txn)?.to.id === cat.id ? <Clock className="h-3.5 w-3.5 text-muted-foreground" /> : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuGroup>
+    );
+  }
   return (
     <>
       {txn.needsReview && currentName ? (
@@ -1223,6 +1292,43 @@ function RowMoreMenu({
         <MoreHorizontal className="h-4 w-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
+        {actions.readOnly ? (
+          <>
+            <DropdownMenuItem onClick={() => actions.openHistory(txn)}>
+              <History className="h-3.5 w-3.5" />
+              {t("historyOpen")}
+            </DropdownMenuItem>
+            {includeCategory && menu.categories.length > 0 ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Tag className="h-3.5 w-3.5" />
+                  {t("suggestCategoryLabel")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-80 w-56">
+                  <CategoryMenuItems {...menu} />
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : null}
+          </>
+        ) : (
+          <OwnerMoreItems includeCategory={includeCategory} otherKinds={otherKinds} {...menu} />
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function OwnerMoreItems({
+  includeCategory,
+  otherKinds,
+  ...menu
+}: MenuBaseProps & {
+  includeCategory: boolean;
+  otherKinds: Record<Kind, Array<{ value: Kind; label: string }>>;
+}) {
+  const { txn, t, actions } = menu;
+  return (
+    <>
         <DropdownMenuItem onClick={() => actions.editText(txn)}>
           <Pencil className="h-3.5 w-3.5" />
           {t("renameAction")}
@@ -1291,6 +1397,66 @@ function RowMoreMenu({
             {opt.label}
           </DropdownMenuItem>
         ))}
+    </>
+  );
+}
+
+/**
+ * A suggested category waiting for the owner, beside the row's category. The
+ * owner can approve or decline it right here; the viewer who sent it can take
+ * it back.
+ */
+function PendingRequestPill({
+  txn,
+  actions,
+  tCat,
+  compact = false,
+}: {
+  txn: TransactionWithCategory;
+  actions: RowActions;
+  tCat: CategoryTranslator;
+  compact?: boolean;
+}) {
+  const t = useTranslations("sharing.requests");
+  const req = actions.pendingFor(txn);
+  if (!req) return null;
+  const to = translateCategoryName(req.to.name, tCat);
+  const title = actions.readOnly ? t("pillWaiting", { category: to }) : t("pillSuggested", { name: req.requestedBy, category: to });
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="inline-flex h-6 min-w-0 shrink items-center gap-1 rounded-full border border-dashed border-[color-mix(in_oklch,var(--status-heads-up)_55%,var(--border))] px-2 text-[11.5px] font-medium text-[color-mix(in_oklch,var(--status-heads-up)_50%,var(--foreground))] outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+        aria-label={title}
+        title={title}
+      >
+        <Clock className="h-3 w-3 shrink-0" />
+        <span className={cn("truncate", compact && "max-w-[6.5rem]")}>{to}</span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="whitespace-normal font-normal leading-snug">
+            {title}
+            {req.note ? <span className="mt-1 block italic">“{req.note}”</span> : null}
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        {actions.readOnly ? (
+          <DropdownMenuItem onClick={() => actions.withdrawRequest(req)}>
+            <Undo2 className="h-3.5 w-3.5" />
+            {t("withdraw")}
+          </DropdownMenuItem>
+        ) : (
+          <>
+            <DropdownMenuItem onClick={() => actions.decideRequest(req, "approve")}>
+              <Check className="h-3.5 w-3.5" style={{ color: INCOME_INK }} />
+              {t("approveAs", { category: to })}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => actions.decideRequest(req, "decline")}>
+              <X className="h-3.5 w-3.5" />
+              {t("decline")}
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

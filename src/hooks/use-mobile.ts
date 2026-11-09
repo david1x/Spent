@@ -1,6 +1,8 @@
 import * as React from "react"
 
-const MOBILE_BREAKPOINT = 768
+// Below this the sidebar is a drawer and the bottom tab bar takes over:
+// phones and tablets, where a fixed sidebar leaves too little room.
+const MOBILE_BREAKPOINT = 1024
 const QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`
 
 function subscribe(onChange: () => void) {

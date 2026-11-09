@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
@@ -23,9 +24,10 @@ interface SyncControlProps {
  */
 export function SyncControl({ autoStart = false, className }: SyncControlProps) {
   const t = useTranslations("dashboard");
+  const { readOnly } = useAccess();
   const queryClient = useQueryClient();
   const sync = useSync();
-  useAutoStartSync(autoStart);
+  useAutoStartSync(autoStart && !readOnly);
   const syncing = sync?.syncing ?? false;
 
   // Same key and fetcher as the Home page, so on Home this is a cache hit.
@@ -59,6 +61,8 @@ export function SyncControl({ autoStart = false, className }: SyncControlProps) 
     queryClient.invalidateQueries({ queryKey: ["transactions-summary"] });
   }, [queryClient]);
 
+  // Syncing is the owner's; their banks, their passwords.
+  if (readOnly) return null;
   return (
     <div className={cn("flex items-center gap-1 sm:gap-2", className)}>
       <CategorizeButton

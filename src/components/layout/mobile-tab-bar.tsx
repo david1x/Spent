@@ -4,22 +4,24 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
-import { NAV_ITEMS } from "./nav-items";
-import { useReviewCount } from "./use-review-count";
+import { navItemsFor } from "./nav-items";
+import { useAccess } from "@/components/access-provider";
+import { useTransactionsBadge } from "./use-review-count";
 
-/** Bottom navigation for phones, where the sidebar is a drawer. */
+/** Bottom navigation for phones and tablets, where the sidebar is a drawer. */
 export function MobileTabBar() {
   const pathname = usePathname();
   const t = useTranslations("nav");
-  const reviewCount = useReviewCount();
+  const reviewCount = useTransactionsBadge();
+  const { readOnly } = useAccess();
 
   return (
     <nav
       aria-label={t("primaryNav")}
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-card/85 md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-card/85 lg:hidden"
     >
       <ul className="mx-auto grid max-w-lg grid-cols-5 px-1.5 pt-1">
-        {NAV_ITEMS.map((item) => {
+        {navItemsFor(readOnly).map((item) => {
           const active = item.match(pathname);
           const label = t(item.labelKey);
           const badge =
@@ -35,7 +37,7 @@ export function MobileTabBar() {
                   badge != null ? t("withReviewCount", { label, count: badge }) : undefined
                 }
                 className={cn(
-                  "flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-1 pb-1 pt-1.5 text-[11px] leading-tight outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                  "flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg px-0.5 pb-1 pt-1.5 text-[10.5px] leading-tight tracking-tight min-[400px]:text-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                   active
                     ? "font-semibold text-primary"
                     : "font-medium text-muted-foreground hover:text-foreground"

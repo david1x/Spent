@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { RefreshCw } from "lucide-react";
@@ -28,6 +29,7 @@ const THIN_HISTORY_DAYS = 90;
 export function InsightsPage() {
   useAmountsHidden();
   const t = useTranslations("insights");
+  const { readOnly } = useAccess();
   const query = useQuery({ queryKey: ["insights"], queryFn: getInsights });
   const data = query.data;
 
@@ -88,7 +90,7 @@ export function InsightsPage() {
               </div>
               {data.income ? <IncomeCard income={data.income} /> : null}
             </div>
-            {data.budgetSuggestions.length > 0 || data.mergeSuggestions.length > 0 ? (
+            {!readOnly && (data.budgetSuggestions.length > 0 || data.mergeSuggestions.length > 0) ? (
               <div className={`${ROW} md:grid-cols-[repeat(2,minmax(0,1fr))]`}>
                 {data.budgetSuggestions.length > 0 ? (
                   <div id="budgets" className="min-w-0 scroll-mt-24">

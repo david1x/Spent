@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
 import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -156,6 +157,7 @@ function StatusPill({ s }: { s: RecurringSeries }) {
 /** Frequency, canceled, not recurring: the user's say on one series. */
 function RecurringMenu({ s }: { s: RecurringSeries }) {
   const t = useTranslations("insights");
+  const { readOnly } = useAccess();
   const queryClient = useQueryClient();
   const done = (message: string) => {
     queryClient.invalidateQueries({ queryKey: ["insights"] });
@@ -177,6 +179,7 @@ function RecurringMenu({ s }: { s: RecurringSeries }) {
   });
   const value = s.userCadence ? s.cadence : "auto";
 
+  if (readOnly) return null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger

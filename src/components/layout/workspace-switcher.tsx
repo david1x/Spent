@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, FolderKanban, Plus, Settings2 } from "lucide-react";
 import {
@@ -19,21 +19,26 @@ import {
   useActiveWorkspaceId,
 } from "@/lib/workspace-store";
 import type { Workspace } from "@/lib/types";
+import { useAccess } from "@/components/access-provider";
 
 export function useSwitchWorkspace() {
   const queryClient = useQueryClient();
-  return (id: number) => {
-    setActiveWorkspaceId(id);
-    // Every cache key was scoped to the previous workspace, so wipe it all.
-    // Each query refetches against the new X-Workspace-ID.
-    queryClient.invalidateQueries();
-  };
+  return useCallback(
+    (id: number) => {
+      setActiveWorkspaceId(id);
+      // Every cache key was scoped to the previous workspace, so wipe it all.
+      // Each query refetches against the new X-Workspace-ID.
+      void queryClient.invalidateQueries();
+    },
+    [queryClient]
+  );
 }
 
 export function WorkspaceSwitcher() {
   const router = useRouter();
   const t = useTranslations("workspaceSwitcher");
   const switchWorkspace = useSwitchWorkspace();
+  const { readOnly } = useAccess();
   const activeId = useActiveWorkspaceId();
 
   const { data: workspaces = [] } = useQuery<Workspace[]>({
@@ -46,12 +51,14 @@ export function WorkspaceSwitcher() {
   // lowest-id workspace as soon as the list comes back. This avoids a window
   // where requests would fall back to the server-side default and ignore the
   // header entirely.
+  // Also when the remembered one is gone: deleted, or no longer shared with
+  // this viewer.
   useEffect(() => {
-    if (activeId == null && workspaces.length > 0) {
-      const fallback = workspaces[0];
-      setActiveWorkspaceId(fallback.id);
+    if (workspaces.length === 0) return;
+    if (activeId == null || !workspaces.some((w) => w.id === activeId)) {
+      switchWorkspace(workspaces[0].id);
     }
-  }, [activeId, workspaces]);
+  }, [activeId, workspaces, switchWorkspace]);
 
   const active = workspaces.find((w) => w.id === activeId) ?? workspaces[0];
 
@@ -107,21 +114,25 @@ export function WorkspaceSwitcher() {
                 ) : null}
               </DropdownMenuItem>
             ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => router.push("/setup?mode=new-workspace")}
-              className="gap-2"
-            >
-              <Plus className="size-4" />
-              {t("newWorkspace")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => router.push("/settings#workspace")}
-              className="gap-2"
-            >
-              <Settings2 className="size-4" />
-              {t("manageWorkspaces")}
-            </DropdownMenuItem>
+            {readOnly ? null : (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => router.push("/setup?mode=new-workspace")}
+                  className="gap-2"
+                >
+                  <Plus className="size-4" />
+                  {t("newWorkspace")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => router.push("/settings#workspace")}
+                  className="gap-2"
+                >
+                  <Settings2 className="size-4" />
+                  {t("manageWorkspaces")}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

@@ -6,6 +6,27 @@ export interface Workspace {
   updatedAt: string;
 }
 
+/** A viewer's suggested category for a transaction, waiting for the owner. */
+export interface CategoryRequest {
+  id: number;
+  transactionId: number;
+  requestedBy: string;
+  viewerId: number | null;
+  note: string | null;
+  status: "pending" | "approved" | "declined";
+  createdAt: string;
+  decidedAt: string | null;
+  from: { id: number; name: string; color: string } | null;
+  to: { id: number; name: string; color: string };
+  transaction: {
+    description: string;
+    displayName: string | null;
+    chargedAmount: number;
+    date: string;
+    currentCategoryId: number | null;
+  };
+}
+
 export interface Transaction {
   id: number;
   accountNumber: string;

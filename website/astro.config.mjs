@@ -3,10 +3,10 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mdx from '@astrojs/mdx';
 
-const REPO_URL = 'https://github.com/Shaya16/Spent';
+const REPO_URL = 'https://github.com/david1x/Spent';
 
 export default defineConfig({
-	site: 'https://shaya16.github.io',
+	site: 'https://david1x.github.io',
 	base: '/Spent',
 	trailingSlash: 'ignore',
 	integrations: [

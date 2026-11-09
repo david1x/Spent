@@ -4,6 +4,8 @@ import { useCallback, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { TransactionsSummary } from "@/lib/api";
 import type { HomePayload } from "@/lib/types";
+import { useAccess } from "@/components/access-provider";
+import { useCategoryRequests } from "@/components/sharing/category-requests";
 
 /**
  * The review queue size, read passively from data the current pages already
@@ -38,4 +40,17 @@ export function useReviewCount(): number | null {
   }, [cache]);
 
   return useSyncExternalStore(subscribe, getSnapshot, () => null);
+}
+
+/**
+ * The Transactions badge: rows waiting for review plus category suggestions
+ * waiting for the owner. A viewer can do neither, so gets no badge.
+ */
+export function useTransactionsBadge(): number | null {
+  const reviewCount = useReviewCount();
+  const { readOnly } = useAccess();
+  const { requests } = useCategoryRequests();
+  if (readOnly) return null;
+  const total = (reviewCount ?? 0) + requests.length;
+  return total > 0 ? total : reviewCount;
 }

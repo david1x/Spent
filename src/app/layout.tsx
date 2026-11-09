@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import { Inter, Fraunces, Geist_Mono } from "next/font/google";
+import { cookies } from "next/headers";
 import { getLocale, getMessages } from "next-intl/server";
 import { I18nProvider } from "@/i18n/client-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/query-provider";
+import { AccessProvider, type ClientAccess } from "@/components/access-provider";
+import { accessFor, isAuthEnabled, ownerName, SESSION_COOKIE } from "@/server/auth";
 import { dirFor, isLocale, defaultLocale } from "@/i18n/routing";
 import "./globals.css";
 
@@ -39,6 +42,13 @@ export default async function RootLayout({
   const locale = isLocale(rawLocale) ? rawLocale : defaultLocale;
   const messages = await getMessages();
   const dir = dirFor(locale);
+  const access = accessFor((await cookies()).get(SESSION_COOKIE)?.value);
+  const clientAccess: ClientAccess = {
+    role: access?.role ?? "owner",
+    username: access?.username ?? null,
+    ownerName: ownerName(),
+    signInOn: isAuthEnabled(),
+  };
   return (
     <html
       lang={locale}
@@ -49,12 +59,14 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col">
         <I18nProvider locale={locale} messages={messages as Record<string, unknown>}>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-            <QueryProvider>
-              <TooltipProvider>
-                {children}
-                <Toaster />
-              </TooltipProvider>
-            </QueryProvider>
+            <AccessProvider value={clientAccess}>
+              <QueryProvider>
+                <TooltipProvider>
+                  {children}
+                  <Toaster />
+                </TooltipProvider>
+              </QueryProvider>
+            </AccessProvider>
           </ThemeProvider>
         </I18nProvider>
       </body>

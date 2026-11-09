@@ -169,7 +169,7 @@ export function BankStep({ onComplete }: BankStepProps) {
             <p className="text-xs italic text-muted-foreground">
               Don&apos;t see your bank?{" "}
               <a
-                href="https://github.com/Shaya16/Spent/issues"
+                href="https://github.com/david1x/Spent/issues"
                 target="_blank"
                 rel="noreferrer"
                 className="text-foreground underline decoration-primary underline-offset-2"

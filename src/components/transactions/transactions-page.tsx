@@ -14,6 +14,7 @@ import {
   type RangePreset,
 } from "./range-selector";
 import { AINotConnectedBanner } from "@/components/ai-not-connected-banner";
+import { CategoryRequestsCard } from "@/components/sharing/category-requests";
 import { ReviewBanner, SummaryStrip } from "./summary-strip";
 import {
   TransactionsToolbar,
@@ -217,6 +218,7 @@ export function TransactionsPage({ initial }: { initial?: TransactionsInitialFil
 
       <div className="space-y-4 p-4 md:p-6 lg:p-8">
         <AINotConnectedBanner />
+        <CategoryRequestsCard />
 
         <TransactionsToolbar
           search={search}

@@ -4,7 +4,9 @@ export interface AuthStatus {
   enabled: boolean;
   requiredByServer: boolean;
   signedIn: boolean;
+  role?: "owner" | "viewer";
   username?: string | null;
+  ownerName?: string | null;
   enabledAt?: string | null;
   recoveryCodesLeft?: number;
 }
@@ -76,3 +78,20 @@ export const newRecoveryCodes = (code: string) =>
 
 export const disableSignIn = (password: string, code: string) =>
   call<{ success: boolean }>("/api/auth/disable", { method: "POST", json: { password, code } });
+
+export interface InviteInfo {
+  ownerName: string | null;
+  workspaces: string[];
+  expiresAt: string;
+}
+
+export const getInvite = (token: string) => call<InviteInfo>(`/api/invites/${encodeURIComponent(token)}`);
+
+export const startInviteEnrollment = (token: string, username: string, password: string) =>
+  call<{ enrollmentId: string; secret: string; qr: string }>(`/api/invites/${encodeURIComponent(token)}/enroll`, {
+    method: "POST",
+    json: { username, password },
+  });
+
+export const finishInviteEnrollment = (enrollmentId: string, code: string) =>
+  call<{ recoveryCodes: string[] }>("/api/invites/confirm", { method: "POST", json: { enrollmentId, code } });

@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -141,6 +142,7 @@ function DetailSkeleton() {
 }
 
 function DetailContent({ data }: { data: CategoryDetail }) {
+  const { readOnly } = useAccess();
   const queryClient = useQueryClient();
   // The same row menus and "apply to this merchant" toast as the Transactions page.
   const rows = useTransactionRowActions();
@@ -282,7 +284,7 @@ function DetailContent({ data }: { data: CategoryDetail }) {
             color={data.category.color}
           />
         )}
-        {data.needsReviewCount > 0 && (
+        {data.needsReviewCount > 0 && !readOnly && (
           <NeedsReviewSection
             transactions={data.needsReviewTransactions}
             categories={sameKindCategoriesQuery.data ?? []}
@@ -616,6 +618,7 @@ function BudgetStat({
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const { readOnly } = useAccess();
 
   useEffect(() => {
     if (editing) {
@@ -662,7 +665,11 @@ function BudgetStat({
       <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
         Budget
       </div>
-      {editing ? (
+      {readOnly ? (
+        <div className={amount > 0 ? "mt-0.5 font-serif text-xl tabular-nums" : "mt-0.5 text-sm text-muted-foreground"}>
+          {amount > 0 ? formatCurrency(amount) : "None"}
+        </div>
+      ) : editing ? (
         <input
           ref={inputRef}
           type="number"

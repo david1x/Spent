@@ -131,7 +131,8 @@ export function Dashboard() {
       <PageHeader
         title={t("pageTitle")}
         meta={trend ? trendLabel : monthLabel}
-        actions={
+        actions={<SyncControl />}
+        toolbar={
           <>
             <Tabs value={pageView} onValueChange={(v) => changePageView(v === "trend" ? "trend" : "month")}>
               <TabsList>
@@ -154,7 +155,6 @@ export function Dashboard() {
                 onNext={() => setSelectedDate((d) => addMonths(d, 1))}
               />
             )}
-            <SyncControl />
           </>
         }
       />

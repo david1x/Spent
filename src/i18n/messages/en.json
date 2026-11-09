@@ -47,7 +47,13 @@
     "scopeLabel": "Accounts in totals: {scope}",
     "scopeHint": "Totals cover the banks you pick, plus the cards linked to each one under Settings › Bank accounts.",
     "scopeLinkedCards": "{count, plural, =0 {No cards linked} one {+ 1 linked card} other {+ # linked cards}}",
-    "insights": "Insights"
+    "insights": "Insights",
+    "account": "Account",
+    "signOut": "Sign out",
+    "signedInAs": "Signed in as {name}",
+    "accountSecurity": "Account and security",
+    "ownerAccount": "Owner",
+    "viewOnlyAccount": "View only"
   },
   "home": {
     "pageTitle": "Home",
@@ -396,7 +402,8 @@
     "renameApplyPrompt": "{count, plural, one {One other transaction looks like the same payee.} other {# other transactions look like the same payee.}} Call {count, plural, one {it} other {them}} {name} too?",
     "renameApplyAction": "{count, plural, one {Rename it} other {Rename all #}}",
     "renameApplyDone": "{count, plural, one {Renamed one more transaction to {name}} other {Renamed # more transactions to {name}}}",
-    "editCategoryBudget": "Edit {category} budget"
+    "editCategoryBudget": "Edit {category} budget",
+    "suggestCategoryLabel": "Suggest a category"
   },
   "dashboard": {
     "syncing": "Syncing…",
@@ -568,7 +575,8 @@
       "ai": "AI provider",
       "categories": "Categories",
       "data": "Data & privacy",
-      "security": "Security"
+      "security": "Security",
+      "sharing": "Sharing"
     },
     "workspace": {
       "nameTitle": "Workspace name",
@@ -1509,7 +1517,10 @@
       "weak_password": "Use a password of at least 10 characters.",
       "invalid_username": "Choose a name of up to 64 characters.",
       "signed_out": "Sign in to continue.",
-      "generic": "Something went wrong. Try again."
+      "generic": "Something went wrong. Try again.",
+      "name_taken": "That name is taken. Choose another.",
+      "invite_invalid": "This invite link has expired or was already used.",
+      "invalid_request": "Something is missing. Check the form and try again."
     },
     "recovery": {
       "copy": "Copy",
@@ -1598,7 +1609,102 @@
       "domainHint": "A few things to know before Spent is reachable from outside this computer.",
       "domainHttps": "Serve it over HTTPS (a reverse proxy such as Caddy, Traefik or nginx). Sign-in cookies are marked secure when the request arrives over HTTPS.",
       "domainRequired": "Set SPENT_AUTH_REQUIRED=1 on the server so a fresh install asks for a sign-in before anything else, even before setup.",
-      "domainReset": "Locked out? On the server, run"
+      "domainReset": "Locked out? On the server, run",
+      "offCardSharing": "Everyone you shared with loses access too."
+    }
+  },
+  "sharing": {
+    "requests": {
+      "ownerTitle": "Category suggestions",
+      "viewerTitle": "Waiting for approval",
+      "ownerHint": "People you shared with think these belong in another category. Nothing changes until you approve.",
+      "viewerHint": "{owner} decides. Nothing changes until then.",
+      "theOwner": "the owner",
+      "approveAll": "Approve all",
+      "approve": "Approve",
+      "decline": "Decline",
+      "withdraw": "Take back",
+      "approveAs": "Approve: {category}",
+      "approvedToast": "{count, plural, one {Suggestion approved} other {# suggestions approved}}",
+      "declinedToast": "{count, plural, one {Suggestion declined} other {# suggestions declined}}",
+      "withdrawnToast": "Suggestion taken back",
+      "sentToast": "Suggested {category}. {owner} will see it and decide.",
+      "failed": "That didn't work. Try again.",
+      "showAll": "Show all {count}",
+      "showFewer": "Show fewer",
+      "uncategorized": "Uncategorized",
+      "changeTo": "change to",
+      "byLine": "{name} · {date}",
+      "pillWaiting": "You suggested {category}. Waiting for approval.",
+      "pillSuggested": "{name} suggested {category}"
+    },
+    "viewer": {
+      "badge": "View only",
+      "badgeHint": "You can look around and suggest categories. Changes are up to the owner.",
+      "badgeHintNamed": "This is {owner}'s spending. You can look around and suggest categories; {owner} decides.",
+      "accountTitle": "Signed in as {username}",
+      "accountHint": "You have view-only access. You can suggest a category for any transaction, and the owner approves it.",
+      "accountHintNamed": "{owner} shared their spending with you to view. You can suggest a category for any transaction, and {owner} approves it.",
+      "pageTitle": "Your account",
+      "pageDescription": "Your sign-in, recovery codes and the browsers you're signed in on."
+    },
+    "invite": {
+      "title": "{owner} shared their spending with you",
+      "hint": "Create your own sign-in to view it. You'll see everything shared and can suggest categories, but not change anything.",
+      "someone": "Someone",
+      "footer": "Only {owner} can change what you see or remove your access.",
+      "goneTitle": "This link doesn't work anymore",
+      "goneHint": "Invite links work once and expire after a week. Ask for a new one.",
+      "toSignIn": "Go to sign in",
+      "signedInTitle": "You're already signed in",
+      "signedInHint": "This browser is signed in as {name}. Sign out to join with this invite.",
+      "signOutAndJoin": "Sign out and continue"
+    },
+    "settings": {
+      "title": "Sharing",
+      "description": "Let someone see your spending without being able to change it. They can suggest a better category for a transaction, and you approve it.",
+      "needsSignInTitle": "Turn on sign-in first",
+      "needsSignInHint": "Everyone gets their own sign-in, so Spent can tell you apart and keep them view-only.",
+      "needsSignInAction": "Set up sign-in",
+      "inviteTitle": "Invite someone",
+      "inviteHint": "Create a link and send it to them. They choose their own name, password and authenticator app.",
+      "labelField": "Who is it for? (optional)",
+      "labelPlaceholder": "e.g. Dana",
+      "workspacesField": "What they'll see",
+      "createLink": "Create invite link",
+      "linkLabel": "Invite link",
+      "copy": "Copy link",
+      "copiedShort": "Copied",
+      "copied": "Link copied",
+      "copyFailed": "Couldn't copy. Select the link and copy it.",
+      "linkNote": "It works once, for {days} days. Send it privately: whoever opens it first gets access. This link won't be shown again.",
+      "another": "Create another",
+      "peopleTitle": "People",
+      "peopleHint": "Tap a workspace to share or stop sharing it.",
+      "peopleEmpty": "No one yet. Create an invite link above.",
+      "joined": "Joined {date}",
+      "lastActive": "active {when}",
+      "notSignedIn": "not signed in",
+      "nothingShared": "Nothing is shared with them right now.",
+      "personMenu": "Options for {name}",
+      "signOutEverywhere": "Sign them out everywhere",
+      "stopSharing": "Stop sharing",
+      "removeTitle": "Stop sharing with {name}?",
+      "removeHint": "Their sign-in is deleted and they're signed out everywhere. Their open suggestions stay for you to decide. You can invite them again later.",
+      "cancel": "Cancel",
+      "signedOutToast": "{name} is signed out everywhere",
+      "removedToast": "Stopped sharing with {name}",
+      "openTitle": "Open invite links",
+      "openHint": "Not used yet. Revoke one if it went to the wrong person.",
+      "unnamedInvite": "Invite link",
+      "expires": "expires {date}",
+      "revoke": "Revoke",
+      "revokedToast": "Link revoked",
+      "failed": "That didn't work. Try again.",
+      "whatTitle": "What they can do",
+      "canSee": "See everything in the workspaces you share: transactions, budgets, insights and charts.",
+      "canSuggest": "Suggest a category for a transaction. It shows up on your Home and Transactions pages to approve or decline.",
+      "cannot": "They can't sync, edit, set budgets, see your bank logins or open Settings."
     }
   }
 }

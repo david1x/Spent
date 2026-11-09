@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
@@ -14,13 +15,14 @@ interface AINotConnectedBannerProps {
 
 export function AINotConnectedBanner({ className }: AINotConnectedBannerProps) {
   const t = useTranslations("aiBanner");
+  const { readOnly } = useAccess();
   const { data } = useQuery({
     queryKey: ["settings"],
     queryFn: getSettings,
     staleTime: 60_000,
   });
 
-  if (!data || data.aiProvider !== "none") return null;
+  if (readOnly || !data || data.aiProvider !== "none") return null;
 
   return (
     <div

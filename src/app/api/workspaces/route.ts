@@ -3,9 +3,15 @@ import {
   createWorkspace,
   listWorkspaces,
 } from "@/server/db/queries/workspaces";
+import { requestAccess } from "@/server/auth/http";
 
-export async function GET() {
-  return NextResponse.json(listWorkspaces());
+export async function GET(request: Request) {
+  const access = requestAccess(request);
+  const all = listWorkspaces();
+  // A viewer only learns about the workspaces shared with them.
+  return NextResponse.json(
+    access?.role === "viewer" ? all.filter((w) => access.workspaceIds.includes(w.id)) : all
+  );
 }
 
 export async function POST(request: Request) {

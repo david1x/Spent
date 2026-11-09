@@ -8,6 +8,7 @@ import { getHome } from "@/lib/api";
 import { PageHeader } from "@/components/layout/app-shell";
 import { SyncControl } from "@/components/layout/sync-control";
 import { AINotConnectedBanner } from "@/components/ai-not-connected-banner";
+import { CategoryRequestsCard } from "@/components/sharing/category-requests";
 import { ThisMonthCard } from "./this-month-card";
 import { CashFlowCard } from "./cash-flow-card";
 import { CategorySnapshotCard } from "./category-snapshot-card";
@@ -72,6 +73,7 @@ export function HomePage() {
           className="mb-4 md:mb-5 lg:mb-6"
         />
         <AINotConnectedBanner className="mb-4 md:mb-5 lg:mb-6" />
+        <CategoryRequestsCard className="mb-4 md:mb-5 lg:mb-6" />
         <div className="flex flex-col gap-4 md:gap-5 lg:gap-6">
           <div className={`${ROW_GAP} lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]`}>
             {section("thisMonth")}

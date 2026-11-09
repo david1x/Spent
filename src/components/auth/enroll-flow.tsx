@@ -22,7 +22,16 @@ type Stage =
  * and confirm a code), then the recovery codes. Nothing is saved until the
  * code is confirmed; after that this browser is already signed in.
  */
-export function EnrollFlow({ onDone }: { onDone: () => void }) {
+export function EnrollFlow({
+  onDone,
+  start = startEnrollment,
+  finish = finishEnrollment,
+}: {
+  onDone: () => void;
+  /** Step one and two; an invite link passes its own (see /invite). */
+  start?: (username: string, password: string) => Promise<{ enrollmentId: string; secret: string; qr: string }>;
+  finish?: (enrollmentId: string, code: string) => Promise<{ recoveryCodes: string[] }>;
+}) {
   const t = useTranslations("auth.enroll");
   const errorMessage = useAuthErrorMessage();
   const [stage, setStage] = useState<Stage>({ kind: "account" });
@@ -58,7 +67,7 @@ export function EnrollFlow({ onDone }: { onDone: () => void }) {
           e.preventDefault();
           if (!accountReady) return;
           void run(async () => {
-            const res = await startEnrollment(username, password);
+            const res = await start(username, password);
             setStage({ kind: "scan", ...res });
           });
         }}
@@ -117,7 +126,7 @@ export function EnrollFlow({ onDone }: { onDone: () => void }) {
           e.preventDefault();
           if (code.length !== 6) return;
           void run(async () => {
-            const res = await finishEnrollment(stage.enrollmentId, code);
+            const res = await finish(stage.enrollmentId, code);
             setStage({ kind: "codes", codes: res.recoveryCodes });
           });
         }}

@@ -42,8 +42,10 @@ function LiveData() {
 
     const check = async () => {
       if (checking || document.visibilityState !== "visible") return;
-      // Nothing to keep fresh there, and a 401 would send it back to itself.
-      if (window.location.pathname.startsWith("/login")) return;
+      // Nothing to keep fresh there, and a 401 would send it back to itself
+      // (or, from an invite link, off to sign-in before the person has joined).
+      const path = window.location.pathname;
+      if (path.startsWith("/login") || path.startsWith("/invite/")) return;
       checking = true;
       try {
         const res = await fetch("/api/data-version", { cache: "no-store" });

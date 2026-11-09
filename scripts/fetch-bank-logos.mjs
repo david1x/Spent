@@ -39,7 +39,7 @@ const LOGOS = {
 		'https://upload.wikimedia.org/wikipedia/en/thumb/d/d6/Bank_Igud_logo.svg/250px-Bank_Igud_logo.svg.png',
 };
 
-const userAgent = 'SpentLandingBuild/0.1 (https://github.com/Shaya16/Spent)';
+const userAgent = 'SpentLandingBuild/0.1 (https://github.com/david1x/Spent)';
 
 const fetchLogo = async (url) => {
 	try {

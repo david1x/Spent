@@ -19,6 +19,7 @@ import type {
   SpendingTrend,
   ImportRow,
   ImportResult,
+  CategoryRequest,
 } from "./types";
 import type { InsightsPayload, RecurringCadence } from "./insights-types";
 import { getActiveWorkspaceIdSync } from "./workspace-store";
@@ -962,4 +963,93 @@ export function pullOllamaModel(
   })();
 
   return { cancel: () => controller.abort() };
+}
+
+/** Like fetchJSON, but a failure carries the server's readable message. */
+async function fetchWithMessage<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, withWorkspaceHeader(init));
+  const body = (await res.json().catch(() => null)) as ({ message?: string } & T) | null;
+  if (!res.ok) throw new Error(body?.message ?? "Request failed");
+  return body as T;
+}
+
+const jsonInit = (method: string, payload: unknown): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
+
+/** Open category suggestions in the active workspace. */
+export function listCategoryRequests() {
+  return fetchWithMessage<{ requests: CategoryRequest[] }>("/api/category-requests");
+}
+
+/** A viewer suggests a category; the owner approves or declines it. */
+export function suggestCategory(transactionId: number, categoryId: number, note?: string) {
+  return fetchWithMessage<{ request: CategoryRequest }>(
+    "/api/category-requests",
+    jsonInit("POST", { transactionId, categoryId, note })
+  );
+}
+
+export function withdrawCategoryRequest(id: number) {
+  return fetchWithMessage<{ removed: boolean }>("/api/category-requests", jsonInit("DELETE", { id }));
+}
+
+export function decideCategoryRequests(ids: number[], decision: "approve" | "decline") {
+  return fetchWithMessage<{ decided: number }>("/api/category-requests/decide", jsonInit("POST", { ids, decision }));
+}
+
+export interface SharingState {
+  available: boolean;
+  inviteDays: number;
+  viewers: ViewerInfo[];
+  invites: ShareInviteInfo[];
+}
+
+export interface ViewerInfo {
+  id: number;
+  username: string;
+  createdAt: string;
+  workspaceIds: number[];
+  lastSeenAt: string | null;
+  activeSessions: number;
+}
+
+export interface ShareInviteInfo {
+  id: number;
+  label: string | null;
+  workspaceIds: number[];
+  createdAt: string;
+  expiresAt: string;
+}
+
+export function getSharing() {
+  return fetchWithMessage<SharingState>("/api/sharing");
+}
+
+export function createShareInvite(workspaceIds: number[], label: string) {
+  return fetchWithMessage<{ invite: ShareInviteInfo; path: string }>(
+    "/api/sharing/invites",
+    jsonInit("POST", { workspaceIds, label })
+  );
+}
+
+export function revokeShareInvite(id: number) {
+  return fetchWithMessage<{ revoked: boolean }>("/api/sharing/invites", jsonInit("DELETE", { id }));
+}
+
+export function setViewerWorkspaces(viewerId: number, workspaceIds: number[]) {
+  return fetchWithMessage<{ workspaceIds: number[] }>(
+    `/api/sharing/viewers/${viewerId}`,
+    jsonInit("PATCH", { workspaceIds })
+  );
+}
+
+export function signOutViewer(viewerId: number) {
+  return fetchWithMessage<{ ended: number }>(`/api/sharing/viewers/${viewerId}`, jsonInit("PATCH", { signOut: true }));
+}
+
+export function removeViewer(viewerId: number) {
+  return fetchWithMessage<{ removed: boolean }>(`/api/sharing/viewers/${viewerId}`, { method: "DELETE" });
 }

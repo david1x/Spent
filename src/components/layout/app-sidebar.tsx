@@ -17,9 +17,11 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { NAV_ITEMS } from "./nav-items";
-import { useReviewCount } from "./use-review-count";
+import { navItemsFor } from "./nav-items";
+import { useAccess } from "@/components/access-provider";
+import { useTransactionsBadge } from "./use-review-count";
 import { WorkspaceSwitcher } from "./workspace-switcher";
+import { AccountMenu } from "./account-menu";
 
 // Active item reads as a raised card on the cream sidebar (per the redesign
 // mock). In dark mode card and sidebar share a color, so fall back to accent.
@@ -29,7 +31,8 @@ const NAV_BUTTON_CLASS =
 export function AppSidebar() {
   const pathname = usePathname();
   const t = useTranslations("nav");
-  const reviewCount = useReviewCount();
+  const reviewCount = useTransactionsBadge();
+  const { readOnly } = useAccess();
   const { isMobile, setOpenMobile } = useSidebar();
 
   // The mobile drawer should close once the user picks a destination.
@@ -71,7 +74,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
-              {NAV_ITEMS.map((item) => {
+              {navItemsFor(readOnly).map((item) => {
                 const label = t(item.labelKey);
                 const badge =
                   item.showReviewBadge && reviewCount != null && reviewCount > 0
@@ -116,12 +119,13 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter>
+        <AccountMenu />
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               render={
                 <a
-                  href="https://github.com/Shaya16/Spent"
+                  href="https://github.com/david1x/Spent"
                   target="_blank"
                   rel="noreferrer"
                 >

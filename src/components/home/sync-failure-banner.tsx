@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/components/access-provider";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -113,6 +114,7 @@ function truncate(s: string, max = 120): string {
 
 export function SyncFailureBanner({ items, className }: Props) {
   const t = useTranslations("syncFailureBanner");
+  const { readOnly } = useAccess();
   const tBanks = useTranslations("banks");
   const tDashboard = useTranslations("dashboard");
   const sync = useSync();
@@ -125,7 +127,7 @@ export function SyncFailureBanner({ items, className }: Props) {
     queryFn: listIntegrations,
     enabled: failures.length === 1,
   });
-  if (!items || failures.length === 0) return null;
+  if (readOnly || !items || failures.length === 0) return null;
 
   // Bank health is keyed by provider, so retry just that connection only when
   // it maps to exactly one; otherwise fall back to a full sync.
