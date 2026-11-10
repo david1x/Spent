@@ -293,7 +293,7 @@ docker compose up -d --build
 
 Open `http://127.0.0.1:4005`. The image bundles Chromium for the bank scrapers, and your data lives in the `spent-data` volume (`/data` in the container), so rebuilding or updating the image keeps it. Spent has no login screen, so the port only answers on the host by default. To reach it from other devices on a network you trust, change the port line in `docker-compose.yml` to `"4005:4005"`. `SPENT_PORT=4010 docker compose up -d` picks another host port.
 
-"Show browser during sync" needs a screen, so it doesn't work in Docker. Sync banks that need manual 2FA from a desktop install, or turn 2FA off for them.
+"Show browser during sync" needs a screen, so Docker runs the browser hidden instead. Bank Hapoalim and One Zero ask for their one-time code in the sync window, so they work in Docker too (Hapoalim also remembers the device, so it asks less often). For other banks that need a code, sync from a desktop install or turn 2FA off for them.
 
 ### Putting Spent on a domain
 

@@ -2,10 +2,15 @@ import "server-only";
 
 import { CompanyTypes, createScraper } from "israeli-bank-scrapers";
 import type { CardScope, ScrapeResult, ScrapedTransaction } from "./types";
-import type { BankProvider } from "@/lib/types";
+import { BANK_PROVIDERS, type BankProvider } from "@/lib/types";
 import { getWorkspaceSetting } from "../db/queries/settings";
 import { formatSyncError } from "@/lib/sync-error";
 import { SpentIsracardScraper } from "./isracard";
+import { CODE_NEEDED_MESSAGE, SpentHapoalimScraper } from "./hapoalim";
+import fs from "fs";
+import path from "path";
+import puppeteer from "puppeteer";
+import { DATA_DIR } from "../lib/data-dir";
 
 export const PROVIDER_MAP: Record<string, CompanyTypes> = {
   isracard: CompanyTypes.isracard,
@@ -120,6 +125,19 @@ function classifyError(error: unknown): {
     };
   }
 
+  if (msg.includes(CODE_NEEDED_MESSAGE)) {
+    return { retryable: false, friendly: CODE_NEEDED_MESSAGE };
+  }
+
+  // Missing screen for a visible browser (should be caught earlier, see canShowBrowser).
+  if (/Missing X server|headful browser/i.test(msg)) {
+    return {
+      retryable: false,
+      friendly:
+        "This server has no screen, so Spent can't open a browser window here. Turn off \"Show browser during sync\" for this workspace.",
+    };
+  }
+
   // Puppeteer reports a closed tab or window this way. With "Show browser
   // during sync" on, that's almost always the user closing it early.
   if (/Target closed|Session closed|browser has disconnected|Connection closed/i.test(msg)) {
@@ -150,13 +168,26 @@ const FRIENDLY_ERRORS: Record<string, string> = {
     "The scraper failed unexpectedly. Run with 'Show browser during sync' enabled to see what's happening.",
 };
 
+/**
+ * A browser on the login's own profile. The library closes it when the
+ * scrape ends. Two syncs of one login never overlap (the orchestrator
+ * checks), so the profile is never opened twice.
+ */
+async function profileBrowser(credentialId: number, showBrowser: boolean, args: string[]) {
+  const dir = browserProfileDir(credentialId);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const browser = await puppeteer.launch({ headless: !showBrowser, args, userDataDir: dir, timeout: 60000 });
+  return { browser, showBrowser: undefined, args: undefined, timeout: undefined };
+}
+
 async function runScrape(
   provider: BankProvider,
   credentials: Record<string, string>,
   startDate: Date,
   showBrowser: boolean,
-  cardScope?: CardScope
+  extra: ScrapeBankOptions = {}
 ): Promise<ScrapeResult> {
+  const { cardScope } = extra;
   const companyId = PROVIDER_MAP[provider];
   if (!companyId) {
     return {
@@ -190,7 +221,15 @@ async function runScrape(
   };
   // Isracard needs a click on its login page first; see ./isracard.ts.
   let scraper: ReturnType<typeof createScraper>;
-  if (provider === "isracard") {
+  if (provider === "hapoalim") {
+    const hapoalim = new SpentHapoalimScraper(
+      extra.credentialId ? { ...options, ...(await profileBrowser(extra.credentialId, showBrowser, chromiumArgs)) } : options
+    );
+    hapoalim.visible = showBrowser;
+    hapoalim.askForCode = extra.askForCode;
+    hapoalim.onCodeSubmitted = extra.onCodeSubmitted;
+    scraper = hapoalim;
+  } else if (provider === "isracard") {
     const isracard = new SpentIsracardScraper(options);
     if (cardScope) isracard.cardScope = cardScope;
     scraper = isracard;
@@ -275,6 +314,35 @@ interface ScrapeBankOptions {
   manualTwoFactor?: boolean;
   /** Which cards to read, for card companies that list them (Isracard). */
   cardScope?: CardScope;
+  /**
+   * Asks the user for a one-time code the bank sends mid-login (Hapoalim).
+   * Unset when nobody is watching, so the sync stops with a clear message
+   * instead of waiting for a code.
+   */
+  askForCode?: () => Promise<string>;
+  onCodeSubmitted?: () => void;
+  /** The login's id: keeps a browser profile per login, so the bank recognizes the device. */
+  credentialId?: number;
+}
+
+/**
+ * A visible browser needs a screen. Linux without a display (a server, a
+ * Docker container) has none, and Chromium refuses to start headful there.
+ */
+export function canShowBrowser(): boolean {
+  return process.platform !== "linux" || Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+}
+
+/** Banks whose sign-in Spent finishes itself, code included. */
+const asksCodeInApp = (provider: string) => Boolean(BANK_PROVIDERS.find((b) => b.id === provider)?.asksCodeInApp);
+
+/**
+ * Cookies and storage kept between syncs for banks that ask for a code on a
+ * new device, so they stop treating every sync as one. Lives in the data
+ * folder, next to the database, and is removed with the login.
+ */
+export function browserProfileDir(credentialId: number): string {
+  return path.join(DATA_DIR, "browser-profiles", `login-${credentialId}`);
 }
 
 export async function scrapeBank(
@@ -286,7 +354,13 @@ export async function scrapeBank(
 ): Promise<ScrapeResult> {
   const workspaceShowBrowser =
     getWorkspaceSetting(workspaceId, "scraper_show_browser") === "true";
-  const showBrowser = options.manualTwoFactor === true || workspaceShowBrowser;
+  // Hapoalim's code is asked for in Spent, so its window isn't needed for it.
+  const wantsBrowser =
+    (options.manualTwoFactor === true && !asksCodeInApp(provider)) || workspaceShowBrowser;
+  const showBrowser = wantsBrowser && canShowBrowser();
+  if (wantsBrowser && !showBrowser) {
+    console.log("[scraper] no screen here, so the browser runs hidden");
+  }
   const MAX_ATTEMPTS = 2;
   let lastError: unknown = null;
 
@@ -295,7 +369,7 @@ export async function scrapeBank(
       console.log(
         `[scraper] starting scrape for ${provider} from ${startDate.toISOString()} (attempt ${attempt}/${MAX_ATTEMPTS}, showBrowser=${showBrowser})`
       );
-      return await runScrape(provider, credentials, startDate, showBrowser, options.cardScope);
+      return await runScrape(provider, credentials, startDate, showBrowser, options);
     } catch (error) {
       lastError = error;
       console.error(

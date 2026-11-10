@@ -587,6 +587,12 @@ export interface BankProviderInfo {
    */
   supportsProgrammaticTwoFactor?: boolean;
   /**
+   * The bank sometimes texts a code mid-login, and Spent's own scraper asks
+   * for it in the sync dialog and types it in (src/server/scrapers/hapoalim.ts).
+   * No browser window, so it works on a server too.
+   */
+  asksCodeInApp?: boolean;
+  /**
    * Set when the bank blocks automated sign-in and no scraper fix exists yet.
    * Sync skips these connections; transactions come in through file imports.
    * Remove the flag to turn sync back on.
@@ -722,6 +728,7 @@ export const BANK_PROVIDERS: BankProviderInfo[] = [
       { key: "password", label: "Password", type: "password" },
     ],
     enabled: true,
+    asksCodeInApp: true,
   },
   {
     id: "leumi",

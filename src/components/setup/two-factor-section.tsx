@@ -30,6 +30,8 @@ export function TwoFactorSection({
   showResetButton = false,
 }: TwoFactorSectionProps) {
   const supportsProgrammatic = Boolean(info.supportsProgrammaticTwoFactor);
+  const codeInApp = Boolean(info.asksCodeInApp);
+  const handled = supportsProgrammatic || codeInApp;
 
   return (
     <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
@@ -43,6 +45,13 @@ export function TwoFactorSection({
           {info.name} sends a one-time SMS code on first sync. Spent will save a
           long-term token so future syncs don&apos;t need a fresh code.
           {hasTwoFactorToken && " You already have a saved token."}
+        </p>
+      ) : codeInApp ? (
+        <p className="text-xs text-muted-foreground">
+          {info.name} sometimes texts a one-time code when you sign in. Spent
+          asks for it in the sync window and types it in for you, then
+          remembers this device so it asks less often. If a scheduled sync
+          hits a code, press Sync and enter it.
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
@@ -61,14 +70,14 @@ export function TwoFactorSection({
         </Label>
         <Switch
           id={`${info.id}-manual-2fa`}
-          checked={requiresManualTwoFactor}
+          checked={requiresManualTwoFactor && !handled}
           onCheckedChange={onChangeManualFlag}
-          disabled={supportsProgrammatic}
+          disabled={handled}
         />
       </div>
-      {supportsProgrammatic ? (
+      {handled ? (
         <p className="text-[11px] text-muted-foreground">
-          Not needed for {info.name} — 2FA is handled programmatically.
+          Not needed for {info.name}: Spent handles the code itself.
         </p>
       ) : null}
 

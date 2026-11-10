@@ -39,7 +39,7 @@ import {
 import { applyMerchantRulesToSyncRun } from "@/server/db/queries/excluded-merchants";
 import { getAllCategories } from "@/server/db/queries/categories";
 import { getRecentCorrections } from "@/server/db/queries/category-corrections";
-import { scrapeBank } from "@/server/scrapers";
+import { canShowBrowser, scrapeBank } from "@/server/scrapers";
 import {
   scrapeOneZeroFirstTime,
   scrapeOneZeroWithToken,
@@ -204,7 +204,7 @@ async function runScrapeForProvider(args: RunScrapeArgs): Promise<ScrapeResult> 
     return result;
   }
 
-  if (manualTwoFactor) {
+  if (manualTwoFactor && !BANK_PROVIDERS.find((b) => b.id === provider)?.asksCodeInApp && canShowBrowser()) {
     send("provider-2fa-manual", {
       workspaceId,
       workspaceName,
@@ -212,9 +212,21 @@ async function runScrapeForProvider(args: RunScrapeArgs): Promise<ScrapeResult> 
     });
   }
 
+  // Banks that send a code mid-login (Hapoalim): ask in the sync dialog,
+  // but only when someone is watching it. A scheduled sync has no dialog.
+  const interactive = send !== NOOP_SEND;
   return scrapeBank(workspaceId, provider, credentials, startDate, {
     manualTwoFactor,
     cardScope: args.cardScope,
+    credentialId,
+    askForCode: interactive
+      ? () => {
+          const bridge = registerOtpRequest(syncRunId, workspaceId, provider);
+          send("provider-2fa-needed", { workspaceId, workspaceName, provider, syncRunId });
+          return bridge.wait();
+        }
+      : undefined,
+    onCodeSubmitted: () => send("provider-2fa-submitted", { workspaceId, workspaceName, provider, syncRunId }),
   });
 }
 

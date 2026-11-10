@@ -263,13 +263,16 @@ export function hasBankCredentials(workspaceId: number): boolean {
   return row.count > 0;
 }
 
+/** True when the login existed in this workspace and is now gone. */
 export function deleteBankCredentials(
   workspaceId: number,
   credentialId: number
-): void {
-  getDb()
-    .prepare("DELETE FROM bank_credentials WHERE workspace_id = ? AND id = ?")
-    .run(workspaceId, credentialId);
+): boolean {
+  return (
+    getDb()
+      .prepare("DELETE FROM bank_credentials WHERE workspace_id = ? AND id = ?")
+      .run(workspaceId, credentialId).changes > 0
+  );
 }
 
 export function listBankCredentials(workspaceId: number): BankCredentialMeta[] {

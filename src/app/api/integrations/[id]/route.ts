@@ -1,3 +1,5 @@
+import fs from "fs";
+import { browserProfileDir } from "@/server/scrapers";
 import { NextResponse } from "next/server";
 import {
   deleteBankCredentials,
@@ -120,6 +122,9 @@ export async function DELETE(
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
   }
 
-  deleteBankCredentials(workspaceId, credentialId);
+  if (deleteBankCredentials(workspaceId, credentialId)) {
+    // The bank's cookies for this login (see browserProfileDir) go with it.
+    fs.rmSync(browserProfileDir(credentialId), { recursive: true, force: true });
+  }
   return NextResponse.json({ success: true });
 }

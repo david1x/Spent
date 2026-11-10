@@ -9,9 +9,8 @@ import { useSync } from "@/components/dashboard/sync-button";
 
 /** Banks that text a one-time code, which only the app-wide sync dialog can collect. */
 function asksForCode(provider: string | undefined): boolean {
-  return Boolean(
-    provider && BANK_PROVIDERS.find((b) => b.id === provider)?.supportsProgrammaticTwoFactor
-  );
+  const bank = provider ? BANK_PROVIDERS.find((b) => b.id === provider) : undefined;
+  return Boolean(bank?.supportsProgrammaticTwoFactor || bank?.asksCodeInApp);
 }
 
 export interface SyncState {
