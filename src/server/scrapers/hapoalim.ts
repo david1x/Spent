@@ -143,6 +143,51 @@ async function submitCode(frame: Frame, lastInput: ElementHandle<Element>): Prom
   if (!clicked) await lastInput.press("Enter").catch(() => undefined);
 }
 
+/**
+ * What a page shows, for the log when the login doesn't finish: its path,
+ * title, headings and the visible inputs and buttons. Never input values,
+ * and every digit is masked, so no codes, account or phone numbers.
+ */
+async function describePage(page: Page): Promise<string> {
+  let path = "";
+  try {
+    path = new URL(page.url()).pathname;
+  } catch {
+    path = "?";
+  }
+  const parts = [`path=${path}`];
+  for (const frame of page.frames()) {
+    // Runs in the page; no named inner functions (see submitCode).
+    const info = await frame
+      .evaluate(() => {
+        const out: string[] = [];
+        const seen = new Set<string>();
+        const els = Array.from(document.querySelectorAll<HTMLElement>("input, button, [role=button], h1, h2, h3, [role=alert], label"));
+        for (const el of els) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          let text: string;
+          if (el.tagName === "INPUT") {
+            const i = el as HTMLInputElement;
+            text = `input[type=${i.type}${i.id ? ` id=${i.id}` : ""}${i.name ? ` name=${i.name}` : ""}${i.autocomplete ? ` autocomplete=${i.autocomplete}` : ""}${i.inputMode ? ` inputmode=${i.inputMode}` : ""}${i.maxLength > 0 ? ` maxlength=${i.maxLength}` : ""}${i.placeholder ? ` placeholder="${i.placeholder}"` : ""}]`.replace(/\d/g, "#");
+          } else {
+            text = `${el.tagName.toLowerCase()}"${(el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 60).replace(/\d/g, "#")}"`;
+          }
+          if (seen.has(text) || text.endsWith('""')) continue;
+          seen.add(text);
+          out.push(text);
+          if (out.length >= 14) break;
+        }
+        return { title: document.title.replace(/\d/g, "#").slice(0, 60), out };
+      })
+      .catch(() => null);
+    if (!info || info.out.length === 0) continue;
+    const where = frame === page.mainFrame() ? `title="${info.title}"` : "frame";
+    parts.push(`${where}: ${info.out.join(" | ")}`);
+  }
+  return parts.join(" ; ");
+}
+
 export class SpentHapoalimScraper extends HapoalimScraper {
   /** Asks the user for the code; unset when nobody is watching (scheduled sync). */
   askForCode?: () => Promise<string>;
@@ -172,7 +217,10 @@ export class SpentHapoalimScraper extends HapoalimScraper {
       await settle(page);
       if (isSignedIn(page.url())) return;
       const target = await findCodeInputs(page);
-      if (!target) return;
+      if (!target) {
+        console.log(`[scraper] Hapoalim login stopped on a page Spent doesn't know: ${await describePage(page)}`);
+        return;
+      }
       if (!this.askForCode) throw new Error(CODE_NEEDED_MESSAGE);
       console.log("[scraper] Bank Hapoalim asked for a one-time code");
       const code = (await this.askForCode()).replace(/\s+/g, "");
@@ -191,5 +239,8 @@ export class SpentHapoalimScraper extends HapoalimScraper {
       await waitForUrlChange(page, before, AFTER_CODE_MS);
     }
     await settle(page);
+    if (!isSignedIn(page.url())) {
+      console.log(`[scraper] Hapoalim login didn't finish after the code: ${await describePage(page)}`);
+    }
   }
 }
