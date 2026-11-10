@@ -6,7 +6,7 @@ import { BANK_PROVIDERS, type BankProvider } from "@/lib/types";
 import { getWorkspaceSetting } from "../db/queries/settings";
 import { formatSyncError } from "@/lib/sync-error";
 import { SpentIsracardScraper } from "./isracard";
-import { CODE_NEEDED_MESSAGE, SpentHapoalimScraper } from "./hapoalim";
+import { SpentHapoalimScraper } from "./hapoalim";
 import fs from "fs";
 import path from "path";
 import puppeteer from "puppeteer";
@@ -125,8 +125,11 @@ function classifyError(error: unknown): {
     };
   }
 
-  if (msg.includes(CODE_NEEDED_MESSAGE)) {
-    return { retryable: false, friendly: CODE_NEEDED_MESSAGE };
+  // Hapoalim's code step explains itself (./hapoalim.ts). Never retried: a
+  // second attempt would sign in again and could use up a code try.
+  const hapoalim = /(Bank Hapoalim (asked|didn't accept|'s code has)|Spent couldn't type the code).*/.exec(msg);
+  if (hapoalim) {
+    return { retryable: false, friendly: hapoalim[0] };
   }
 
   // Missing screen for a visible browser (should be caught earlier, see canShowBrowser).

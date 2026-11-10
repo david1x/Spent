@@ -49,10 +49,18 @@ const REDIRECT_MS = 20_000;
 /** After the code: Hapoalim checks it, then loads the home page. A box still showing after this was turned down. */
 const AFTER_CODE_MS = 25_000;
 const URL_STABLE_MS = 2_000;
-const MAX_CODE_ROUNDS = 2;
 
 export const CODE_NEEDED_MESSAGE =
   "Bank Hapoalim asked for a one-time code, and nobody was there to type it. Press Sync at the top of the page and enter the code when Spent asks.";
+/**
+ * Hapoalim blocks the login after a second wrong code, so a turned-down code
+ * ends the sync instead of asking again. A new sync gets a fresh code.
+ */
+export const CODE_REJECTED_MESSAGE =
+  "Bank Hapoalim didn't accept the code. Spent stopped instead of trying again, because another wrong code would block the login. Sync again to get a new code, and type it exactly as it arrives.";
+/** The page didn't take the digits. Nothing was sent, so no attempt was used up. */
+export const CODE_NOT_TYPED_MESSAGE =
+  "Spent couldn't type the code into Bank Hapoalim's page, so it didn't send it and no attempt was used up. Please let the Spent maintainers know; the sync log has the details.";
 
 const isSignedIn = (url: string) => SIGNED_IN.some((re) => re.test(url));
 
@@ -89,13 +97,6 @@ async function isVisible(handle: ElementHandle<Element>): Promise<boolean> {
     .catch(() => false);
 }
 
-async function firstVisible(frame: Frame, selectors: string[]): Promise<ElementHandle<Element> | null> {
-  for (const selector of selectors) {
-    const handles = await frame.$$(selector).catch(() => [] as ElementHandle<Element>[]);
-    for (const h of handles) if (await isVisible(h)) return h;
-  }
-  return null;
-}
 
 interface CodeTarget {
   frame: Frame;
@@ -103,18 +104,97 @@ interface CodeTarget {
   inputs: ElementHandle<Element>[];
 }
 
-/** The code input(s) on the page, if it's asking for a code. */
+/** Fewer boxes than this in a row is a single field (and something else beside it). */
+const MIN_DIGIT_BOXES = 4;
+
+/**
+ * The code input(s) on the page, if it's asking for a code: one field for
+ * the whole code, or a row of boxes with one digit each. Hapoalim uses the
+ * row, five plain text boxes without a maxlength, so several visible matches
+ * of the same kind count as a row too.
+ */
 async function findCodeInputs(page: Page): Promise<CodeTarget | null> {
   for (const frame of page.frames()) {
-    const first = await firstVisible(frame, CODE_INPUTS);
-    if (!first) continue;
-    const perDigit = await first.evaluate((el) => (el as HTMLInputElement).maxLength === 1);
-    if (!perDigit) return { frame, inputs: [first] };
-    const boxes: ElementHandle<Element>[] = [];
-    for (const h of await frame.$$('input[maxlength="1"]')) if (await isVisible(h)) boxes.push(h);
-    return { frame, inputs: boxes.length > 0 ? boxes : [first] };
+    for (const selector of CODE_INPUTS) {
+      const visible: ElementHandle<Element>[] = [];
+      for (const h of await frame.$$(selector).catch(() => [] as ElementHandle<Element>[])) {
+        if (await isVisible(h)) visible.push(h);
+      }
+      if (visible.length === 0) continue;
+      if (visible.length >= MIN_DIGIT_BOXES) return { frame, inputs: visible };
+      const perDigit = await visible[0].evaluate((el) => (el as HTMLInputElement).maxLength === 1);
+      if (!perDigit) return { frame, inputs: [visible[0]] };
+      const boxes: ElementHandle<Element>[] = [];
+      for (const h of await frame.$$('input[maxlength="1"]')) if (await isVisible(h)) boxes.push(h);
+      return { frame, inputs: boxes.length > 0 ? boxes : [visible[0]] };
+    }
   }
   return null;
+}
+
+/** What the boxes hold now, digits only, in page order. */
+async function boxDigits(inputs: ElementHandle<Element>[]): Promise<string> {
+  let out = "";
+  for (const box of inputs) {
+    out += await box.evaluate((el) => ((el as HTMLInputElement).value.match(/\d/g) ?? []).join("")).catch(() => "");
+  }
+  return out;
+}
+
+/** Sets a box the way a framework (Angular here) notices: the native setter, then input and change events. */
+async function setBox(box: ElementHandle<Element>, value: string): Promise<void> {
+  await box
+    .evaluate((el, v: string) => {
+      const input = el as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      input.focus();
+      if (setter) setter.call(input, v);
+      else input.value = v;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, value)
+    .catch(() => undefined);
+}
+
+/**
+ * Puts the code in the box(es) and checks it's all there. Keys first (what
+ * a person does), then setting the value directly if the keys didn't take.
+ * True only when the boxes hold exactly the code.
+ */
+async function enterCode(target: CodeTarget, code: string): Promise<boolean> {
+  const { inputs } = target;
+  const perBox = inputs.length > 1;
+  if (perBox && code.length !== inputs.length) return false;
+
+  // Backspace only in a box that has something: in an empty digit box, many
+  // widgets take it as "delete the previous digit".
+  const clear = async (box: ElementHandle<Element>) => {
+    const filled = await box.evaluate((el) => {
+      const i = el as HTMLInputElement;
+      i.focus();
+      i.select();
+      return i.value.length > 0;
+    });
+    if (filled) await box.press("Backspace");
+  };
+
+  if (perBox) {
+    for (let i = 0; i < inputs.length; i++) {
+      await clear(inputs[i]);
+      await inputs[i].type(code[i], { delay: 60 });
+    }
+  } else {
+    await clear(inputs[0]);
+    await inputs[0].type(code, { delay: 60 });
+  }
+  if ((await boxDigits(inputs)) === code) return true;
+
+  if (perBox) {
+    for (let i = 0; i < inputs.length; i++) await setBox(inputs[i], code[i]);
+  } else {
+    await setBox(inputs[0], code);
+  }
+  return (await boxDigits(inputs)) === code;
 }
 
 /** Ticks "remember this device" when the page offers it, so Hapoalim asks less often. */
@@ -222,6 +302,7 @@ async function describePage(page: Page): Promise<string> {
       .evaluate(() => {
         const out: string[] = [];
         const seen = new Set<string>();
+        const counts: number[] = [];
         const els = Array.from(document.querySelectorAll<HTMLElement>(
             'input, button, [role=button], h1, h2, h3, [role=alert], [aria-live], label, [class*="error" i], [class*="invalid" i]'
           ));
@@ -235,12 +316,20 @@ async function describePage(page: Page): Promise<string> {
           } else {
             text = `${el.tagName.toLowerCase()}"${(el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 60).replace(/\d/g, "#")}"`;
           }
-          if (seen.has(text) || text.endsWith('""')) continue;
+          if (text.endsWith('""')) continue;
+          if (seen.has(text)) {
+            const at = out.indexOf(text);
+            counts[at] = (counts[at] ?? 1) + 1;
+            continue;
+          }
           seen.add(text);
           out.push(text);
           if (out.length >= 14) break;
         }
-        return { title: document.title.replace(/\d/g, "#").slice(0, 60), out };
+        return {
+          title: document.title.replace(/\d/g, "#").slice(0, 60),
+          out: out.map((t, i) => (counts[i] ? `${t} x${counts[i]}` : t)),
+        };
       })
       .catch(() => null);
     if (!info || info.out.length === 0) continue;
@@ -274,46 +363,46 @@ export class SpentHapoalimScraper extends HapoalimScraper {
     };
   }
 
+  /**
+   * One code, one try. Hapoalim blocks the login after a second wrong code,
+   * so a code is sent only when every digit is in place, and a turned-down
+   * code ends the sync.
+   */
   private async codeStep(page: Page): Promise<void> {
-    for (let round = 0; round < MAX_CODE_ROUNDS; round++) {
-      await settle(page);
-      if (isSignedIn(page.url())) return;
-      const target = await findCodeInputs(page);
-      if (!target) {
-        console.log(`[scraper] Hapoalim login stopped on a page Spent doesn't know: ${await describePage(page)}`);
-        return;
-      }
-      if (!this.askForCode) throw new Error(CODE_NEEDED_MESSAGE);
-      console.log("[scraper] Bank Hapoalim asked for a one-time code");
-      const code = (await this.askForCode()).replace(/\s+/g, "");
-      this.onCodeSubmitted?.();
+    await settle(page);
+    if (isSignedIn(page.url())) return;
+    const target = await findCodeInputs(page);
+    if (!target) {
+      console.log(`[scraper] Hapoalim login stopped on a page Spent doesn't know: ${await describePage(page)}`);
+      return;
+    }
+    if (!this.askForCode) throw new Error(CODE_NEEDED_MESSAGE);
+    console.log(`[scraper] Bank Hapoalim asked for a one-time code (${target.inputs.length} box${target.inputs.length === 1 ? "" : "es"})`);
+    const code = (await this.askForCode()).replace(/\D/g, "");
+    this.onCodeSubmitted?.();
 
-      await rememberDevice(target.frame);
-      if (target.inputs.length > 1) {
-        for (let i = 0; i < target.inputs.length && i < code.length; i++) await target.inputs[i].type(code[i]);
-      } else {
-        const input = target.inputs[0];
-        // Clear it first: on a second round the last code is still in it.
-        await input.evaluate((el) => {
-          const i = el as HTMLInputElement;
-          i.focus();
-          i.select();
-        });
-        await input.press("Backspace");
-        await input.type(code, { delay: 60 });
-      }
-      // Only how many digits landed, never the code itself.
-      let digits = 0;
-      for (const box of target.inputs) {
-        digits += await box.evaluate((el) => ((el as HTMLInputElement).value.match(/\d/g) ?? []).length).catch(() => 0);
-      }
-      const before = page.url();
-      const pressed = await submitCode(target.inputs[target.inputs.length - 1]);
-      console.log(`[scraper] Hapoalim code: ${digits} of ${code.length} digits in the box, ${pressed}`);
-      await waitForCodeTaken(page, before, AFTER_CODE_MS);
-      if (page.url() === before && (await findCodeInputs(page))) {
-        console.log(`[scraper] Hapoalim is still asking for the code: ${await describePage(page)}`);
-      }
+    if (target.inputs.length > 1 && code.length !== target.inputs.length) {
+      throw new Error(
+        `Bank Hapoalim's code has ${target.inputs.length} digits, and ${code.length} were entered. Nothing was sent, so no attempt was used up. Sync again and type the whole code.`
+      );
+    }
+    await rememberDevice(target.frame);
+    const entered = await enterCode(target, code);
+    // Only counts, never the code itself.
+    const landed = (await boxDigits(target.inputs)).length;
+    if (!entered) {
+      console.log(
+        `[scraper] Hapoalim code not sent: ${landed} of ${code.length} digits in ${target.inputs.length} box(es). ${await describePage(page)}`
+      );
+      throw new Error(CODE_NOT_TYPED_MESSAGE);
+    }
+    const before = page.url();
+    const pressed = await submitCode(target.inputs[target.inputs.length - 1]);
+    console.log(`[scraper] Hapoalim code: all ${code.length} digits in place, ${pressed}`);
+    await waitForCodeTaken(page, before, AFTER_CODE_MS);
+    if (page.url() === before && (await findCodeInputs(page))) {
+      console.log(`[scraper] Hapoalim turned the code down: ${await describePage(page)}`);
+      throw new Error(CODE_REJECTED_MESSAGE);
     }
     await settle(page);
     if (!isSignedIn(page.url())) {
