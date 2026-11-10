@@ -61,6 +61,53 @@ export const CODE_REJECTED_MESSAGE =
 /** The page didn't take the digits. Nothing was sent, so no attempt was used up. */
 export const CODE_NOT_TYPED_MESSAGE =
   "Spent couldn't type the code into Bank Hapoalim's page, so it didn't send it and no attempt was used up. Please let the Spent maintainers know; the sync log has the details.";
+/** Hapoalim stopped taking codes for this login. Only the bank can release it. */
+export const CODE_LOCKED_MESSAGE =
+  "Bank Hapoalim locked code entry after too many wrong codes. Unlock it on Hapoalim's website or app, then sync again.";
+
+/**
+ * Hapoalim's notice that code entry is locked: "מצטערים, לא ניתן להמשיך
+ * בפעולה בגלל טעויות בהקלדת קוד האימות", or wording about a block that has
+ * happened. Not the earlier warning ("ייחסמו", will be blocked), which still
+ * allows one more try.
+ */
+const LOCKED_TEXT = /לא ניתן להמשיך|נחסמ/;
+
+/** True when an alert or error on the page says code entry is locked. */
+async function isLocked(page: Page): Promise<boolean> {
+  for (const frame of page.frames()) {
+    const text = await frame
+      .evaluate(() =>
+        Array.from(
+          document.querySelectorAll<HTMLElement>('[role=alert], [aria-live], kite-alert, [class*="error" i]')
+        )
+          .map((el) => el.innerText || "")
+          .join(" ")
+      )
+      .catch(() => "");
+    if (LOCKED_TEXT.test(text)) return true;
+  }
+  return false;
+}
+
+/**
+ * How a row of digit boxes runs on screen, for the log (no values): page
+ * order left to right or right to left, and the row's text direction. The
+ * code goes in page order, the way the boxes move from one to the next as a
+ * person types.
+ */
+async function describeBoxes(inputs: ElementHandle<Element>[]): Promise<string> {
+  if (inputs.length < 2) return "one box";
+  const xs: number[] = [];
+  for (const box of inputs) xs.push(await box.evaluate((el) => el.getBoundingClientRect().left).catch(() => 0));
+  const ltr = xs.every((x, i) => i === 0 || x > xs[i - 1]);
+  const rtl = xs.every((x, i) => i === 0 || x < xs[i - 1]);
+  const dir = await inputs[0]
+    .evaluate((el) => (el.parentElement ? getComputedStyle(el.parentElement).direction : "?"))
+    .catch(() => "?");
+  const order = ltr ? "left to right" : rtl ? "right to left" : "mixed";
+  return `${inputs.length} boxes, page order runs ${order} on screen, row direction ${dir}`;
+}
 
 const isSignedIn = (url: string) => SIGNED_IN.some((re) => re.test(url));
 
@@ -304,7 +351,7 @@ async function describePage(page: Page): Promise<string> {
         const seen = new Set<string>();
         const counts: number[] = [];
         const els = Array.from(document.querySelectorAll<HTMLElement>(
-            'input, button, [role=button], h1, h2, h3, [role=alert], [aria-live], label, [class*="error" i], [class*="invalid" i]'
+            'input, button, [role=button], h1, h2, h3, [role=alert], [aria-live], kite-alert, label, [class*="error" i], [class*="invalid" i]'
           ));
         for (const el of els) {
           const r = el.getBoundingClientRect();
@@ -376,8 +423,13 @@ export class SpentHapoalimScraper extends HapoalimScraper {
       console.log(`[scraper] Hapoalim login stopped on a page Spent doesn't know: ${await describePage(page)}`);
       return;
     }
+    // Already locked: asking for a code would only waste one.
+    if (await isLocked(page)) {
+      console.log(`[scraper] Hapoalim has locked code entry: ${await describePage(page)}`);
+      throw new Error(CODE_LOCKED_MESSAGE);
+    }
     if (!this.askForCode) throw new Error(CODE_NEEDED_MESSAGE);
-    console.log(`[scraper] Bank Hapoalim asked for a one-time code (${target.inputs.length} box${target.inputs.length === 1 ? "" : "es"})`);
+    console.log(`[scraper] Bank Hapoalim asked for a one-time code (${await describeBoxes(target.inputs)})`);
     const code = (await this.askForCode()).replace(/\D/g, "");
     this.onCodeSubmitted?.();
 
@@ -400,6 +452,10 @@ export class SpentHapoalimScraper extends HapoalimScraper {
     const pressed = await submitCode(target.inputs[target.inputs.length - 1]);
     console.log(`[scraper] Hapoalim code: all ${code.length} digits in place, ${pressed}`);
     await waitForCodeTaken(page, before, AFTER_CODE_MS);
+    if (page.url() === before && (await isLocked(page))) {
+      console.log(`[scraper] Hapoalim locked code entry after the code: ${await describePage(page)}`);
+      throw new Error(CODE_LOCKED_MESSAGE);
+    }
     if (page.url() === before && (await findCodeInputs(page))) {
       console.log(`[scraper] Hapoalim turned the code down: ${await describePage(page)}`);
       throw new Error(CODE_REJECTED_MESSAGE);
