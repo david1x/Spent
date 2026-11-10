@@ -46,8 +46,8 @@ const NEVER_TEXT = /שלח|קולי|חדש/;
 const REMEMBER_TEXT = /זכור|לזכור|מכשיר/;
 
 const REDIRECT_MS = 20_000;
-/** After the code: Hapoalim checks it, then loads the home page. */
-const AFTER_CODE_MS = 45_000;
+/** After the code: Hapoalim checks it, then loads the home page. A box still showing after this was turned down. */
+const AFTER_CODE_MS = 25_000;
 const URL_STABLE_MS = 2_000;
 const MAX_CODE_ROUNDS = 2;
 
@@ -135,34 +135,72 @@ async function rememberDevice(frame: Frame): Promise<void> {
  * the first container with a matching button wins, so the popup's
  * "המשך" is found before the login form's "כניסה" underneath it.
  */
-async function submitCode(lastInput: ElementHandle<Element>): Promise<void> {
-  const clicked = await lastInput
-    // Runs in the page. No named inner functions: some bundlers wrap those in
-    // a helper the page doesn't have.
-    .evaluate(
-      (el, sources: string[], neverSource: string) => {
-        const never = new RegExp(neverSource);
-        for (const source of sources) {
-          const re = new RegExp(source);
-          for (let node = el.parentElement; node; node = node.parentElement) {
-            for (const b of Array.from(node.querySelectorAll<HTMLElement>('button, input[type="submit"], [role="button"]'))) {
-              const r = b.getBoundingClientRect();
-              if (r.width === 0 || r.height === 0 || (b as HTMLButtonElement).disabled) continue;
-              const text = (b.innerText || (b as HTMLInputElement).value || "").trim();
-              if (re.test(text) && !never.test(text)) {
+/** How long to wait for the code's button to enable after typing (it checks the code first). */
+const BUTTON_ENABLE_MS = 5_000;
+
+/**
+ * Clicks the button that belongs to the code box: walking out from the box,
+ * the first container with a matching button wins, so the popup's
+ * "המשך" is found before the login form's "כניסה" underneath it. A button
+ * that's still disabled is waited for, not skipped. "כניסה" is a fallback
+ * only when the login form isn't on the page, since that one signs in again
+ * and sends a new code. Returns what was pressed, for the log.
+ */
+async function submitCode(lastInput: ElementHandle<Element>): Promise<string> {
+  const until = Date.now() + BUTTON_ENABLE_MS;
+  for (;;) {
+    const result = await lastInput
+      // Runs in the page. No named inner functions: some bundlers wrap those in
+      // a helper the page doesn't have.
+      .evaluate(
+        (el, preferred: string, fallback: string, neverSource: string) => {
+          const never = new RegExp(neverSource);
+          const loginField = document.querySelector<HTMLElement>("#userCode, #password");
+          const loginShowing = Boolean(loginField && loginField.getBoundingClientRect().width > 0);
+          const sources = loginShowing ? [preferred] : [preferred, fallback];
+          let waiting = "";
+          for (const source of sources) {
+            const re = new RegExp(source);
+            for (let node = el.parentElement; node; node = node.parentElement) {
+              for (const b of Array.from(node.querySelectorAll<HTMLElement>('button, input[type="submit"], [role="button"]'))) {
+                const r = b.getBoundingClientRect();
+                if (r.width === 0 || r.height === 0) continue;
+                const text = (b.innerText || (b as HTMLInputElement).value || "").trim();
+                if (!re.test(text) || never.test(text)) continue;
+                if ((b as HTMLButtonElement).disabled || b.getAttribute("aria-disabled") === "true") {
+                  waiting = waiting || text;
+                  continue;
+                }
                 b.click();
-                return true;
+                return `clicked "${text.replace(/\d/g, "#").slice(0, 30)}"`;
               }
             }
           }
-        }
-        return false;
-      },
-      [SUBMIT_TEXT.source, SUBMIT_FALLBACK_TEXT.source],
-      NEVER_TEXT.source
-    )
-    .catch(() => false);
-  if (!clicked) await lastInput.press("Enter").catch(() => undefined);
+          return waiting ? "disabled" : "none";
+        },
+        SUBMIT_TEXT.source,
+        SUBMIT_FALLBACK_TEXT.source,
+        NEVER_TEXT.source
+      )
+      .catch(() => "none");
+    if (result.startsWith("clicked")) return result;
+    if (result === "disabled" && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 300));
+      continue;
+    }
+    await lastInput.press("Enter").catch(() => undefined);
+    return result === "disabled" ? "pressed Enter (the button stayed disabled)" : "pressed Enter (no button found)";
+  }
+}
+
+/** Until the address changes or the code box goes away (the code was taken), up to `ms`. */
+async function waitForCodeTaken(page: Page, from: string, ms: number): Promise<void> {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 700));
+    if (page.url() !== from) return;
+    if (!(await findCodeInputs(page))) return;
+  }
 }
 
 /**
@@ -184,7 +222,9 @@ async function describePage(page: Page): Promise<string> {
       .evaluate(() => {
         const out: string[] = [];
         const seen = new Set<string>();
-        const els = Array.from(document.querySelectorAll<HTMLElement>("input, button, [role=button], h1, h2, h3, [role=alert], label"));
+        const els = Array.from(document.querySelectorAll<HTMLElement>(
+            'input, button, [role=button], h1, h2, h3, [role=alert], [aria-live], label, [class*="error" i], [class*="invalid" i]'
+          ));
         for (const el of els) {
           const r = el.getBoundingClientRect();
           if (r.width === 0 || r.height === 0) continue;
@@ -253,12 +293,27 @@ export class SpentHapoalimScraper extends HapoalimScraper {
         for (let i = 0; i < target.inputs.length && i < code.length; i++) await target.inputs[i].type(code[i]);
       } else {
         const input = target.inputs[0];
-        await input.click({ clickCount: 3 });
-        await input.type(code, { delay: 40 });
+        // Clear it first: on a second round the last code is still in it.
+        await input.evaluate((el) => {
+          const i = el as HTMLInputElement;
+          i.focus();
+          i.select();
+        });
+        await input.press("Backspace");
+        await input.type(code, { delay: 60 });
+      }
+      // Only how many digits landed, never the code itself.
+      let digits = 0;
+      for (const box of target.inputs) {
+        digits += await box.evaluate((el) => ((el as HTMLInputElement).value.match(/\d/g) ?? []).length).catch(() => 0);
       }
       const before = page.url();
-      await submitCode(target.inputs[target.inputs.length - 1]);
-      await waitForUrlChange(page, before, AFTER_CODE_MS);
+      const pressed = await submitCode(target.inputs[target.inputs.length - 1]);
+      console.log(`[scraper] Hapoalim code: ${digits} of ${code.length} digits in the box, ${pressed}`);
+      await waitForCodeTaken(page, before, AFTER_CODE_MS);
+      if (page.url() === before && (await findCodeInputs(page))) {
+        console.log(`[scraper] Hapoalim is still asking for the code: ${await describePage(page)}`);
+      }
     }
     await settle(page);
     if (!isSignedIn(page.url())) {
