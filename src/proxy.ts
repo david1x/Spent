@@ -46,6 +46,7 @@ const VIEWER_PAGES: RegExp[] = [
 const VIEWER_READS: RegExp[] = [
   /^\/api\/activity$/,
   /^\/api\/budgets$/,
+  /^\/api\/cash$/,
   /^\/api\/cards\/moved-in$/,
   /^\/api\/categories$/,
   /^\/api\/categories\/\d+\/detail$/,

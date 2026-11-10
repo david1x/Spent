@@ -103,6 +103,9 @@ function mapAccounts(
 ): ScrapeResult["accounts"] {
   return (scrapeResult.accounts ?? []).map((account) => ({
     accountNumber: account.accountNumber,
+    balance: typeof account.balance === "number" && Number.isFinite(account.balance) ? account.balance : undefined,
+    currency: (account as { currency?: string }).currency,
+    savings: (account as { savingsAccount?: boolean }).savingsAccount === true,
     transactions: account.txns.map(
       (txn): ScrapedTransaction => ({
         type: txn.type === "installments" ? "installments" : "normal",

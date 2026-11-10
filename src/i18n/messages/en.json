@@ -158,7 +158,28 @@
     "trendExpandedHint": "Hover a month for its figures; click one to see its transactions.",
     "paceTipTitle": "Day {day} of {total}",
     "editBudget": "Edit {name} budget",
-    "setBudget": "Set budget"
+    "setBudget": "Set budget",
+    "cash": {
+      "label": "In the bank",
+      "labelCards": "Card bills",
+      "asOf": "As of {when}",
+      "savingsLine": "plus {amount} in savings, not counted",
+      "savingsTag": "Savings",
+      "noBalance": "Your bank's balance shows up here after its next sync.",
+      "untilEnd": "Until {date}",
+      "nothingDue": "Nothing is expected before then.",
+      "expectedOn": "Expected on {date}",
+      "dueBefore": "Due before {date}",
+      "belowZero": "That's below zero, unless something else comes in first.",
+      "late": "Late",
+      "earlyNext": "Early next period",
+      "earlyNextHint": "Card bills for purchases you've already made, and what else is due by then. Open card bills can still grow.",
+      "afterThem": "After them",
+      "cardSoFar": "{count, plural, one {# purchase so far} other {# purchases so far}}",
+      "cardCount": "{count, plural, one {# purchase} other {# purchases}}",
+      "showAll": "Show all {count}",
+      "showLess": "Show fewer"
+    }
   },
   "syncPill": {
     "noBanksConnected": "No banks connected",

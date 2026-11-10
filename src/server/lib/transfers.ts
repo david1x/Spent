@@ -26,7 +26,8 @@ export const CREDIT_CARD_PAYMENT_PATTERNS: readonly RegExp[] = [
   // Match כאל / כ.א.ל / כ א ל / כ-א-ל (Israeli abbreviation for Cal credit).
   /כ[\s.\-־]?א[\s.\-־]?ל/i,
   /מקסימום/i,
-  /מאסטרקארד/i,
+  // Leumi writes both "מאסטרקארד" and, on foreign currency accounts, "מסטרקארד".
+  /מא?סטרקארד/i,
   /אמריקן\s*אקספרס/i,
   /דיינרס/i,
   /תשלום\s*אשראי/i,
@@ -44,6 +45,14 @@ export const CREDIT_CARD_PAYMENT_PATTERNS: readonly RegExp[] = [
   /\bAMERICAN\s+EXPRESS\b/i,
 ];
 
+/**
+ * Money moving between a bank's own accounts: buying or selling foreign
+ * currency ("המרת קנ במט"ח") takes shekels out of one account and puts the
+ * same value into another. The bank's conversion fee is a separate row and
+ * stays an expense.
+ */
+const OWN_ACCOUNT_PATTERNS: readonly RegExp[] = [/המרת\s.*מט"?ח/];
+
 export function isBankProvider(provider: string): provider is BankProvider {
   return BANK_PROVIDERS_SET.has(provider as BankProvider);
 }
@@ -51,7 +60,10 @@ export function isBankProvider(provider: string): provider is BankProvider {
 function matchesTransferPattern(description: string): boolean {
   const normalized = description.replace(/\s+/g, " ").trim();
   if (!normalized) return false;
-  return CREDIT_CARD_PAYMENT_PATTERNS.some((pattern) => pattern.test(normalized));
+  return (
+    CREDIT_CARD_PAYMENT_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+    OWN_ACCOUNT_PATTERNS.some((pattern) => pattern.test(normalized))
+  );
 }
 
 export function detectKind(

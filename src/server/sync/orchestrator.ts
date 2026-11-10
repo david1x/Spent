@@ -8,7 +8,8 @@ import {
   type BankCredentialMeta,
 } from "@/server/db/queries/bank-credentials";
 import { getAppSettings } from "@/server/db/queries/settings";
-import { reconcileCardBills } from "@/server/lib/card-bills";
+import { isBankAccountProvider, reconcileCardBills } from "@/server/lib/card-bills";
+import { saveAccountBalances } from "@/server/db/queries/balances";
 import { getLoginHome, listRoutedIn } from "@/server/lib/card-routes";
 import {
   excludedCards,
@@ -343,6 +344,7 @@ async function syncOneCredential(
   }
 
   recordSeenCards(meta.id, seenCards(result.accounts));
+  if (isBankAccountProvider(provider)) saveAccountBalances(meta.id, result.accounts);
 
   const allTransactions = result.accounts.flatMap((account) =>
     account.transactions.map((txn) => ({

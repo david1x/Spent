@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getDb } from "../db/index";
+import { getGlobalSetting, setGlobalSetting } from "../db/queries/settings";
 import { BANK_PROVIDERS } from "@/lib/types";
 import type { CardAccount } from "@/lib/types";
 import { detectKind } from "./transfers";
@@ -52,6 +53,37 @@ const CANDIDATES_SQL = `
     AND ABS(-charged_amount - ?) <= ${AMOUNT_TOLERANCE}
     AND ABS(julianday(date) - julianday(?)) <= ${MAX_DAYS_APART}`;
 
+/** One currency's share of a card statement. */
+interface CyclePart {
+  currency: string;
+  /** In shekels, as the card company converted it. */
+  ils: number;
+  /** In the purchase currency. */
+  original: number;
+}
+
+const CYCLE_PARTS_SQL = `
+  SELECT CASE WHEN original_currency IS NULL OR original_currency IN ('ILS', '₪') THEN 'ILS'
+              WHEN original_currency = '$' THEN 'USD' WHEN original_currency = '€' THEN 'EUR'
+              WHEN original_currency = '£' THEN 'GBP' ELSE upper(original_currency) END AS currency,
+         -SUM(charged_amount) AS ils, -SUM(original_amount) AS original
+  FROM transactions
+  WHERE workspace_id = ? AND credential_id = ? AND account_number = ? AND processed_date = ?
+    AND status = 'completed'
+  GROUP BY currency`;
+
+/** A debit in a foreign currency account, matched in that currency. */
+const FOREIGN_CANDIDATES_SQL = `
+  SELECT id, date
+  FROM transactions
+  WHERE workspace_id = ? AND credential_id = ?
+    AND original_amount < 0
+    AND kind != 'income'
+    AND card_bill_credential_id IS NULL
+    AND upper(original_currency) = ?
+    AND ABS(-original_amount - ?) <= 0.05
+    AND ABS(julianday(date) - julianday(?)) <= ${MAX_DAYS_APART}`;
+
 function closestTo(candidates: Candidate[], isoDate: string): Candidate {
   const target = Date.parse(isoDate);
   return candidates.reduce((a, b) =>
@@ -99,6 +131,8 @@ export function reconcileCardBills(workspaceId: number): void {
 
     const cyclesStmt = db.prepare(CYCLES_SQL);
     const candidatesStmt = db.prepare(CANDIDATES_SQL);
+    const partsStmt = db.prepare(CYCLE_PARTS_SQL);
+    const foreignStmt = db.prepare(FOREIGN_CANDIDATES_SQL);
     const mark = db.prepare(
       `UPDATE transactions
        SET kind = 'transfer', card_bill_credential_id = ?, card_bill_accounts = ?,
@@ -141,8 +175,12 @@ export function reconcileCardBills(workspaceId: number): void {
         const day = cycle.processedDate.slice(0, 10);
         byDate.set(day, [...(byDate.get(day) ?? []), cycle]);
       }
+      const stillUnmatched: Cycle[] = [];
       for (const sameDay of byDate.values()) {
-        if (sameDay.length < 2) continue;
+        if (sameDay.length < 2) {
+          stillUnmatched.push(...sameDay);
+          continue;
+        }
         const total = sameDay.reduce((s, c) => s + c.total, 0);
         const found = candidatesStmt.all(
           workspaceId,
@@ -150,12 +188,54 @@ export function reconcileCardBills(workspaceId: number): void {
           total,
           sameDay[0].processedDate
         ) as Candidate[];
-        if (found.length === 0) continue;
+        if (found.length === 0) {
+          stillUnmatched.push(...sameDay);
+          continue;
+        }
         const accountList = sameDay.map((c) => c.accountNumber).sort().join(",");
         mark.run(cardId, accountList, closestTo(found, sameDay[0].processedDate).id);
       }
+
+      // Some banks pay a statement in parts: the shekel purchases from the
+      // shekel account, and each foreign currency's purchases in one debit
+      // from that currency's account (Leumi does). Match each part on its own,
+      // the foreign ones by their amount in that currency.
+      for (const cycle of stillUnmatched) {
+        const parts = partsStmt.all(
+          workspaceId,
+          cardId,
+          cycle.accountNumber,
+          cycle.processedDate
+        ) as CyclePart[];
+        if (parts.length < 2) continue;
+        for (const part of parts) {
+          const found = (
+            part.currency === "ILS"
+              ? part.ils > 0
+                ? candidatesStmt.all(workspaceId, bankId, part.ils, cycle.processedDate)
+                : []
+              : part.original > 0
+                ? foreignStmt.all(workspaceId, bankId, part.currency, part.original, cycle.processedDate)
+                : []
+          ) as Candidate[];
+          if (found.length > 0) {
+            mark.run(cardId, cycle.accountNumber, closestTo(found, cycle.processedDate).id);
+          }
+        }
+      }
     }
   })();
+}
+
+/** Bumped when the matching rules change, so bills matched under the old ones are matched again. */
+const MATCHING_VERSION = "2";
+
+/** Re-matches every workspace once after the rules change (on startup), instead of waiting for each sync. */
+export function reconcileAfterUpgrade(): void {
+  if (getGlobalSetting("card_bill_matching") === MATCHING_VERSION) return;
+  const workspaces = getDb().prepare("SELECT id FROM workspaces").all() as { id: number }[];
+  for (const { id } of workspaces) reconcileCardBills(id);
+  setGlobalSetting("card_bill_matching", MATCHING_VERSION);
 }
 
 /** Links one card to the bank login that pays it, or clears the link. */

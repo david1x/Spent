@@ -22,6 +22,7 @@ import type {
   CategoryRequest,
 } from "./types";
 import type { InsightsPayload, RecurringCadence } from "./insights-types";
+import type { CashStatus } from "./cash-types";
 import { getActiveWorkspaceIdSync } from "./workspace-store";
 import { AuthApiError } from "./auth-api";
 import { scopeHeaderValue } from "./scope-store";
@@ -470,6 +471,10 @@ export function getSummary(params: {
 
 export function getHome() {
   return fetchJSON<HomePayload>(`/api/home`);
+}
+
+export function getCash() {
+  return fetchJSON<CashStatus>(`/api/cash`);
 }
 
 export function getActivity() {

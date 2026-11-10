@@ -158,7 +158,28 @@
     "trendExpandedHint": "העבירו את העכבר על חודש כדי לראות את הנתונים; לחיצה מציגה את העסקאות שלו.",
     "paceTipTitle": "יום {day} מתוך {total}",
     "editBudget": "עריכת התקציב של {name}",
-    "setBudget": "הגדרת תקציב"
+    "setBudget": "הגדרת תקציב",
+    "cash": {
+      "label": "בבנק",
+      "labelCards": "חיובי כרטיסים",
+      "asOf": "נכון ל{when}",
+      "savingsLine": "ועוד {amount} בחיסכון, לא נספר",
+      "savingsTag": "חיסכון",
+      "noBalance": "היתרה בבנק תופיע כאן אחרי הסנכרון הבא שלו.",
+      "untilEnd": "עד {date}",
+      "nothingDue": "לא צפוי שום דבר עד אז.",
+      "expectedOn": "צפוי ב-{date}",
+      "dueBefore": "לתשלום עד {date}",
+      "belowZero": "זה מתחת לאפס, אלא אם משהו נכנס קודם.",
+      "late": "באיחור",
+      "earlyNext": "בתחילת התקופה הבאה",
+      "earlyNextHint": "חיובי כרטיסים על קניות שכבר עשית, ומה שעוד צפוי עד אז. חיובים פתוחים עוד יכולים לגדול.",
+      "afterThem": "אחריהם",
+      "cardSoFar": "{count, plural, one {קנייה אחת עד עכשיו} other {# קניות עד עכשיו}}",
+      "cardCount": "{count, plural, one {קנייה אחת} other {# קניות}}",
+      "showAll": "הצגת כל ה-{count}",
+      "showLess": "הצגת פחות"
+    }
   },
   "syncPill": {
     "noBanksConnected": "לא חוברו בנקים",

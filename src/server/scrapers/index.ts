@@ -240,6 +240,9 @@ async function runScrape(
     accountNumber: account.accountNumber,
     // Set by scrapers that list their cards (./isracard-digital-v3.ts).
     card: (account as { card?: { label: string | null; active: boolean } }).card,
+    balance: typeof account.balance === "number" && Number.isFinite(account.balance) ? account.balance : undefined,
+    currency: (account as { currency?: string }).currency,
+    savings: (account as { savingsAccount?: boolean }).savingsAccount === true,
     transactions: account.txns.map(
       (txn): ScrapedTransaction => ({
         type: txn.type === "installments" ? "installments" : "normal",

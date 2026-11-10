@@ -20,6 +20,12 @@ export interface ScrapedAccount {
   transactions: ScrapedTransaction[];
   /** Card companies that list their cards say what each one is. */
   card?: { label: string | null; active: boolean };
+  /** The balance the bank shows now, in the account's currency (banks only). */
+  balance?: number;
+  /** Set for foreign currency accounts; shekels otherwise. */
+  currency?: string;
+  /** A deposit or savings plan, not money to spend. */
+  savings?: boolean;
 }
 
 /** Which cards of a card login a scrape reads (for card companies that list cards). */
