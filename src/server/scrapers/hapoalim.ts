@@ -18,19 +18,31 @@ import type { ElementHandle, Frame, Page } from "puppeteer";
 
 /** Where a finished login lands (same list as the library's). */
 const SIGNED_IN = [/\/portalserver\/HomePage/i, /\/ng-portals(-bt)?\/rb\/he\/homepage/i];
-/** The login form's own fields: while they're showing, it isn't the code page. */
-const LOGIN_FIELDS = ["#userCode", "#password"];
+/**
+ * The login form's own fields. Hapoalim opens the code box as a popup on top
+ * of the login form, so these stay on the page; they're just never the code box.
+ */
+const NOT_LOGIN = ':not(#userCode):not(#password)';
 const CODE_INPUTS = [
   'input[autocomplete="one-time-code"]',
   'input[name*="otp" i]',
   'input[id*="otp" i]',
   'input[name*="code" i]:not([name*="user" i])',
   'input[id*="code" i]:not([id*="user" i])',
+  // Hapoalim's popup: a plain text box with a number keypad, no id or name.
+  'input[inputmode="decimal"]',
   'input[inputmode="numeric"]',
   'input[type="tel"]',
   'input[type="password"][maxlength="6"]',
-];
-const SUBMIT_TEXT = /המשך|אישור|אשר|כניסה|שלח|אמת|התחבר/;
+].map((s) => `${s}${NOT_LOGIN}`);
+/**
+ * The button that sends the code. "Continue" or "confirm" first; "sign in"
+ * only as a fallback, since the login form's own button is on the page too.
+ * Never "שלחו קוד חדש" (send a new code) or "קוד קולי" (voice code).
+ */
+const SUBMIT_TEXT = /המשך|אישור|אשר|אמת/;
+const SUBMIT_FALLBACK_TEXT = /כניסה|התחבר/;
+const NEVER_TEXT = /שלח|קולי|חדש/;
 const REMEMBER_TEXT = /זכור|לזכור|מכשיר/;
 
 const REDIRECT_MS = 20_000;
@@ -94,7 +106,6 @@ interface CodeTarget {
 /** The code input(s) on the page, if it's asking for a code. */
 async function findCodeInputs(page: Page): Promise<CodeTarget | null> {
   for (const frame of page.frames()) {
-    if (await firstVisible(frame, LOGIN_FIELDS)) continue;
     const first = await firstVisible(frame, CODE_INPUTS);
     if (!first) continue;
     const perDigit = await first.evaluate((el) => (el as HTMLInputElement).maxLength === 1);
@@ -119,26 +130,37 @@ async function rememberDevice(frame: Frame): Promise<void> {
     .catch(() => undefined);
 }
 
-async function submitCode(frame: Frame, lastInput: ElementHandle<Element>): Promise<void> {
-  const clicked = await frame
+/**
+ * Clicks the button that belongs to the code box: walking out from the box,
+ * the first container with a matching button wins, so the popup's
+ * "המשך" is found before the login form's "כניסה" underneath it.
+ */
+async function submitCode(lastInput: ElementHandle<Element>): Promise<void> {
+  const clicked = await lastInput
     // Runs in the page. No named inner functions: some bundlers wrap those in
     // a helper the page doesn't have.
-    .evaluate((source: string) => {
-      const re = new RegExp(source);
-      let byText: HTMLElement | null = null;
-      for (const b of Array.from(document.querySelectorAll<HTMLElement>('button, input[type="submit"], [role="button"]'))) {
-        const r = b.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0) continue;
-        if ((b as HTMLButtonElement).type === "submit") {
-          b.click();
-          return true;
+    .evaluate(
+      (el, sources: string[], neverSource: string) => {
+        const never = new RegExp(neverSource);
+        for (const source of sources) {
+          const re = new RegExp(source);
+          for (let node = el.parentElement; node; node = node.parentElement) {
+            for (const b of Array.from(node.querySelectorAll<HTMLElement>('button, input[type="submit"], [role="button"]'))) {
+              const r = b.getBoundingClientRect();
+              if (r.width === 0 || r.height === 0 || (b as HTMLButtonElement).disabled) continue;
+              const text = (b.innerText || (b as HTMLInputElement).value || "").trim();
+              if (re.test(text) && !never.test(text)) {
+                b.click();
+                return true;
+              }
+            }
+          }
         }
-        if (!byText && re.test((b.innerText || (b as HTMLInputElement).value || "").trim())) byText = b;
-      }
-      if (!byText) return false;
-      byText.click();
-      return true;
-    }, SUBMIT_TEXT.source)
+        return false;
+      },
+      [SUBMIT_TEXT.source, SUBMIT_FALLBACK_TEXT.source],
+      NEVER_TEXT.source
+    )
     .catch(() => false);
   if (!clicked) await lastInput.press("Enter").catch(() => undefined);
 }
@@ -235,7 +257,7 @@ export class SpentHapoalimScraper extends HapoalimScraper {
         await input.type(code, { delay: 40 });
       }
       const before = page.url();
-      await submitCode(target.frame, target.inputs[target.inputs.length - 1]);
+      await submitCode(target.inputs[target.inputs.length - 1]);
       await waitForUrlChange(page, before, AFTER_CODE_MS);
     }
     await settle(page);
