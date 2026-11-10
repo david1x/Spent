@@ -40,7 +40,7 @@ export async function summarizeInsights(payload: InsightsPayload, locale: "he" |
       .filter((s) => s.direction === "expense" && s.counted)
       .slice(0, 10)
       .map((s) => ({ merchant: s.merchant, cadence: s.cadence, amount: s.typical, perYear: s.annual, status: s.status, essentialBill: s.essential })),
-    committedNextPeriods: payload.committed.slice(0, 3).map((c) => ({ start: c.periodStart, installments: c.installments, recurring: c.recurring })),
+    committedNextPeriods: payload.committed.filter((c) => !c.current).slice(0, 3).map((c) => ({ start: c.periodStart, installments: c.installments, recurring: c.recurring })),
     fees12Months: payload.fees.total12m,
     foreignSpend12Months: payload.fees.foreignSpend12m,
     lastPeriod: payload.recap && {

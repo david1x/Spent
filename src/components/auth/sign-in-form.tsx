@@ -10,7 +10,7 @@ import { finishLogin, startLogin } from "@/lib/auth-api";
 import { CodeInput, codeReady, useAuthErrorMessage } from "./auth-fields";
 import { ErrorLine } from "./enroll-flow";
 
-/** Name and password, then a code from the authenticator app (or a recovery code). */
+/** Name and password, then, for an account with an authenticator app, a code from it (or a recovery code). */
 export function SignInForm({ onSignedIn }: { onSignedIn: (info: { recoveryCodesLeft: number; usedRecoveryCode: boolean }) => void }) {
   const t = useTranslations("auth.signIn");
   const errorMessage = useAuthErrorMessage();
@@ -50,7 +50,8 @@ export function SignInForm({ onSignedIn }: { onSignedIn: (info: { recoveryCodesL
           void run(async () => {
             const res = await startLogin(username, password);
             setPassword("");
-            setTicket(res.ticket);
+            if (res.ticket) setTicket(res.ticket);
+            else onSignedIn({ usedRecoveryCode: false, recoveryCodesLeft: 0 });
           });
         }}
       >

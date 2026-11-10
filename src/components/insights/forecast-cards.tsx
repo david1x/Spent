@@ -247,7 +247,7 @@ function Legend({ swatch, label, value }: { swatch: React.ReactNode; label: stri
   );
 }
 
-/** Money already spoken for in the coming periods; click a month for what's in it. */
+/** Money already spoken for: the rest of this period, then the coming ones. Click a month for what's in it. */
 export function CommittedCard({ periods }: { periods: CommittedPeriod[] }) {
   const t = useTranslations("insights");
   const locale = useLocale() as Locale;
@@ -256,7 +256,7 @@ export function CommittedCard({ periods }: { periods: CommittedPeriod[] }) {
   const max = Math.max(...periods.map((p) => p.installments + p.recurring), 1);
   const plans = new Map<string, CommittedPeriod["plans"][number]>();
   for (const p of periods) for (const plan of p.plans) if (!plans.has(plan.merchant)) plans.set(plan.merchant, plan);
-  const next = periods[0];
+  const next = periods.find((p) => !p.current);
   const chosen = periods.find((p) => p.periodStart === selected) ?? null;
   const month = (iso: string, style: "short" | "long" = "short") =>
     parseLocalDate(iso).toLocaleDateString(bcpFor(locale), { month: style, ...(style === "long" ? { year: "numeric" } : {}) });
@@ -277,19 +277,20 @@ export function CommittedCard({ periods }: { periods: CommittedPeriod[] }) {
             const total = p.installments + p.recurring;
             const isSel = selected === p.periodStart;
             const dim = selected !== null && !isSel;
+            const heading = p.current ? t("committed.stillDue", { month: month(p.periodStart, "long") }) : month(p.periodStart, "long");
             return (
               <button
                 key={p.periodStart}
                 type="button"
                 aria-pressed={isSel}
-                aria-label={`${month(p.periodStart, "long")}: ${money(total, locale)}`}
+                aria-label={`${heading}: ${money(total, locale)}`}
                 className="group flex h-full min-w-0 flex-1 cursor-pointer flex-col items-center justify-end gap-1 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 style={{ opacity: dim ? 0.45 : 1 }}
                 onMouseEnter={(e) =>
                   show(
                     e.currentTarget,
                     <TipBody
-                      title={month(p.periodStart, "long")}
+                      title={heading}
                       rows={[
                         [t("committed.installments"), money(p.installments, locale)],
                         [t("committed.recurring"), money(p.recurring, locale)],
@@ -302,13 +303,20 @@ export function CommittedCard({ periods }: { periods: CommittedPeriod[] }) {
               >
                 <span className="text-[10.5px] text-muted-foreground tabular-nums">{formatK(total)}</span>
                 <div
-                  className={cn("flex w-full max-w-10 flex-col-reverse overflow-hidden rounded-t-md transition-[filter] group-hover:brightness-110", isSel && "ring-2 ring-ring ring-offset-1 ring-offset-card")}
+                  className={cn(
+                    "flex w-full max-w-10 flex-col-reverse overflow-hidden rounded-t-md transition-[filter] group-hover:brightness-110",
+                    // Only part of the period is left, so the bar is outlined to read as "remaining".
+                    p.current && "outline-1 outline-dashed outline-offset-2 outline-muted-foreground/50",
+                    isSel && "ring-2 ring-ring ring-offset-1 ring-offset-card"
+                  )}
                   style={{ height: `${(total / max) * 78}%` }}
                 >
                   <div className="bg-[color-mix(in_oklch,var(--primary)_35%,transparent)]" style={{ height: `${(p.recurring / Math.max(total, 1)) * 100}%` }} />
                   <div className="bg-primary" style={{ height: `${(p.installments / Math.max(total, 1)) * 100}%` }} />
                 </div>
-                <span className={cn("text-[10.5px] text-muted-foreground", isSel && "font-semibold text-foreground")}>{month(p.periodStart)}</span>
+                <span className={cn("text-[10.5px] text-muted-foreground", (isSel || p.current) && "font-semibold text-foreground")}>
+                  {p.current ? t("committed.now") : month(p.periodStart)}
+                </span>
               </button>
             );
           })}
@@ -330,7 +338,9 @@ export function CommittedCard({ periods }: { periods: CommittedPeriod[] }) {
       {chosen ? (
         <div className="mt-4 border-t border-border pt-3">
           <div className="mb-1 flex items-center justify-between gap-2">
-            <h4 className="text-[12.5px] font-semibold">{t("committed.inPeriod", { month: month(chosen.periodStart, "long") })}</h4>
+            <h4 className="text-[12.5px] font-semibold">
+              {t(chosen.current ? "committed.stillDue" : "committed.inPeriod", { month: month(chosen.periodStart, "long") })}
+            </h4>
             <button
               type="button"
               onClick={() => setSelected(null)}
@@ -340,6 +350,9 @@ export function CommittedCard({ periods }: { periods: CommittedPeriod[] }) {
               <X className="size-3.5" />
             </button>
           </div>
+          {chosen.plans.length + chosen.items.length === 0 ? (
+            <p className="py-1.5 text-[12.5px] text-muted-foreground">{t("committed.nothingDue")}</p>
+          ) : null}
           <ul className="max-h-56 divide-y divide-border overflow-y-auto text-[13px]">
             {chosen.plans.map((plan) => (
               <li key={`p-${plan.merchant}`} className="flex items-center gap-2 py-1.5">

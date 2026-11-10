@@ -9,8 +9,9 @@ import { EnrollFlow } from "@/components/auth/enroll-flow";
 import { finishInviteEnrollment, signOut, startInviteEnrollment, type InviteInfo } from "@/lib/auth-api";
 
 /**
- * The invite link's page: who shared what, then the same three steps as the
- * owner's sign-in (name and password, authenticator, recovery codes).
+ * The invite link's page: who shared what, then the same steps as the
+ * owner's sign-in (name and password, and if they want it an authenticator
+ * app with recovery codes).
  */
 export function InviteScreen({
   token,
@@ -82,7 +83,7 @@ export function InviteScreen({
         </div>
         <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
           <EnrollFlow
-            start={(username, password) => startInviteEnrollment(token, username, password)}
+            start={(username, password, twoFactor) => startInviteEnrollment(token, username, password, twoFactor)}
             finish={finishInviteEnrollment}
             onDone={() => window.location.assign("/")}
           />

@@ -1230,7 +1230,7 @@
       "label": "Already committed",
       "seeRecurring": "Recurring charges",
       "next": "<b>{amount}</b> of next period is already spoken for: installments plus recurring charges.",
-      "chartLabel": "Committed spending for the next six periods",
+      "chartLabel": "Committed spending: the rest of this period and the next five",
       "installments": "Installments",
       "recurring": "Recurring charges",
       "planLine": "{amount} a month · ends {end}",
@@ -1239,7 +1239,10 @@
       "clickHint": "Click a month for details",
       "inPeriod": "Committed in {month}",
       "close": "Close details",
-      "paymentsLeft": "{count, plural, =0 {last payment} one {# left after} other {# left after}}"
+      "paymentsLeft": "{count, plural, =0 {last payment} one {# left after} other {# left after}}",
+      "now": "Now",
+      "stillDue": "Still to pay in {month}",
+      "nothingDue": "Nothing expected."
     },
     "feed": {
       "label": "Worth a look",
@@ -1571,7 +1574,9 @@
       "generic": "Something went wrong. Try again.",
       "name_taken": "That name is taken. Choose another.",
       "invite_invalid": "This invite link has expired or was already used.",
-      "invalid_request": "Something is missing. Check the form and try again."
+      "invalid_request": "Something is missing. Check the form and try again.",
+      "no_two_factor": "This account doesn't use an authenticator app.",
+      "two_factor_on": "The authenticator app is already set up."
     },
     "recovery": {
       "copy": "Copy",
@@ -1597,7 +1602,10 @@
       "back": "Back",
       "codesHint": "If you lose your phone, each of these codes signs you in once. Keep them somewhere safe, away from this computer. They won't be shown again.",
       "savedCheck": "I saved my recovery codes.",
-      "finish": "Done"
+      "finish": "Done",
+      "twoFactorLabel": "Also ask for a code from my phone",
+      "twoFactorHint": "An authenticator app shows a 6-digit code to type at each sign-in, so a password alone isn't enough. Recommended when Spent can be reached from the internet. You can change this later in Settings, Security.",
+      "create": "Create sign-in"
     },
     "signIn": {
       "username": "Name",
@@ -1614,21 +1622,21 @@
     },
     "screen": {
       "signInTitle": "Sign in to Spent",
-      "signInHint": "Your name and password, then a code from your authenticator app.",
+      "signInHint": "Your name and password, and a code from your authenticator app if you set one up.",
       "createTitle": "Create your sign-in",
-      "createHint": "This Spent is set to require sign-in. Choose a name and password and connect an authenticator app before anything else.",
+      "createHint": "This Spent is set to require sign-in. Choose a name and password before anything else.",
       "usedRecovery": "Signed in with a recovery code. You have {count, plural, =0 {no codes} one {# code} other {# codes}} left. Make new ones in Settings, Security.",
       "continue": "Continue",
       "lockedOut": "Lost your phone and your recovery codes? Whoever runs this server can turn sign-in off with npm run auth:reset."
     },
     "settings": {
       "title": "Security",
-      "description": "Sign-in with a password and an authenticator app, for when Spent can be reached from other devices or the internet.",
+      "description": "Sign-in with a password, and if you like a code from an authenticator app, for when Spent can be reached from other devices or the internet.",
       "offTitle": "Sign-in is off",
       "offHint": "Anyone who can open this address can see and change everything. That's fine on your own computer. Turn sign-in on before you put Spent behind a domain or open it to your network.",
       "turnOn": "Turn on sign-in",
       "enrollTitle": "Turn on sign-in",
-      "enrollHint": "You'll sign in with a name, a password and a 6-digit code from an authenticator app on your phone.",
+      "enrollHint": "You'll sign in with a name and a password. You can also ask for a 6-digit code from an authenticator app on your phone.",
       "turnedOn": "Sign-in is on. This browser is signed in.",
       "onTitle": "Sign-in is on",
       "onHint": "Signed in as {username}.",
@@ -1668,7 +1676,21 @@
       "renameConfirmHint": "Pick a new name and confirm with your password. It has to be one nobody else here uses.",
       "renameNewName": "New name",
       "renameSave": "Save name",
-      "renamed": "You now sign in as {username}."
+      "renamed": "You now sign in as {username}.",
+      "turnOffConfirmHintPassword": "Confirm with your password.",
+      "twoFactorTitle": "Authenticator app",
+      "twoFactorOnHint": "Each sign-in also asks for a 6-digit code from the app on your phone.",
+      "twoFactorOffHint": "Only your password protects this account. Add an authenticator app so a stolen password isn't enough.",
+      "twoFactorOn": "On",
+      "twoFactorOff": "Off",
+      "twoFactorAdd": "Set up authenticator",
+      "twoFactorRemove": "Remove authenticator",
+      "twoFactorAddHint": "Confirm with your password, then connect the app on your phone.",
+      "twoFactorContinue": "Continue",
+      "twoFactorVerify": "Verify and turn on",
+      "twoFactorRemoveHint": "Confirm with your password and a code from the app. After this your password alone signs you in, and your recovery codes stop working.",
+      "twoFactorAdded": "The authenticator app is on.",
+      "twoFactorRemoved": "The authenticator app is off. Your password alone signs you in."
     }
   },
   "sharing": {

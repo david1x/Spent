@@ -128,7 +128,7 @@ export function buildInsights(workspaceId: number, now = new Date()): InsightsPa
       : null;
 
   const forecast = computeForecast(rows, ctx, series, plans, target);
-  const committed = committedPeriods(period, startDay, plans, series);
+  const committed = committedPeriods(period, startDay, plans, series, today);
   const upcoming = upcomingCharges(today, rows, plans, series, cardLabels());
   const fees = feesSummary(rows, keys, today);
   const recap = computeRecap(rows, ctx, catalog);
@@ -290,8 +290,9 @@ export function buildInsights(workspaceId: number, now = new Date()): InsightsPa
     });
   }
 
-  const next = committed[0];
-  const following = committed[1];
+  const ahead = committed.filter((c) => !c.current);
+  const next = ahead[0];
+  const following = ahead[1];
   if (next && following) {
     const ending = next.plans.filter((p) => p.remaining === 0);
     const freed = ending.reduce((s, p) => s + p.amount, 0);

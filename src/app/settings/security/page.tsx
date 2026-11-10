@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFormatter, useTranslations } from "next-intl";
 import { toast } from "sonner";
-import { Eye, KeyRound, Laptop, Loader2, LogOut, PencilLine, ShieldCheck, ShieldOff } from "lucide-react";
+import { Eye, KeyRound, Laptop, Loader2, LogOut, PencilLine, ShieldCheck, ShieldOff, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { SectionShell, SettingCard } from "@/components/settings/section-shell";
-import { EnrollFlow, ErrorLine } from "@/components/auth/enroll-flow";
+import { CodesStep, EnrollFlow, ErrorLine, ScanStep } from "@/components/auth/enroll-flow";
 import { CodeInput, RecoveryCodes, useAuthErrorMessage } from "@/components/auth/auth-fields";
 import {
   disableSignIn,
@@ -20,8 +20,11 @@ import {
   getAuthStatus,
   listAuthSessions,
   newRecoveryCodes,
+  removeTwoFactor,
   renameAccount,
   signOut,
+  confirmTwoFactor,
+  startTwoFactor,
   type AuthSession,
 } from "@/lib/auth-api";
 
@@ -75,7 +78,8 @@ export default function SecuritySettingsPage() {
         <>
           <ViewerAccountCard username={status.username ?? ""} ownerName={status.ownerName ?? null} />
           <RenameCard username={status.username ?? ""} />
-          <RecoveryCard left={status.recoveryCodesLeft ?? 0} />
+          <TwoFactorCard on={status.twoFactor ?? false} />
+          {status.twoFactor ? <RecoveryCard left={status.recoveryCodesLeft ?? 0} /> : null}
           <SessionsCard />
         </>
       ) : !status.enabled ? (
@@ -98,9 +102,10 @@ export default function SecuritySettingsPage() {
         <>
           <SignedInCard username={status.username ?? ""} enabledAt={status.enabledAt ?? null} />
           <RenameCard username={status.username ?? ""} />
-          <RecoveryCard left={status.recoveryCodesLeft ?? 0} />
+          <TwoFactorCard on={status.twoFactor ?? false} />
+          {status.twoFactor ? <RecoveryCard left={status.recoveryCodesLeft ?? 0} /> : null}
           <SessionsCard />
-          <TurnOffCard />
+          <TurnOffCard twoFactor={status.twoFactor ?? false} />
         </>
       )}
       {status?.role === "viewer" ? null : (
@@ -333,6 +338,199 @@ function RenameCard({ username }: { username: string }) {
   );
 }
 
+type TwoFactorStage =
+  | { kind: "closed" }
+  | { kind: "password" }
+  | { kind: "scan"; setupId: string; secret: string; qr: string }
+  | { kind: "codes"; codes: string[] }
+  | { kind: "remove" };
+
+/** The authenticator app: optional, added or removed by the account itself. */
+function TwoFactorCard({ on }: { on: boolean }) {
+  const t = useTranslations("auth.settings");
+  const tCommon = useTranslations("common");
+  const errorMessage = useAuthErrorMessage();
+  const queryClient = useQueryClient();
+  const [stage, setStage] = useState<TwoFactorStage>({ kind: "closed" });
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["auth-status"] });
+  const close = () => {
+    setStage({ kind: "closed" });
+    setPassword("");
+    setCode("");
+    setError(null);
+  };
+  const begin = useMutation({
+    mutationFn: () => startTwoFactor(password),
+    onSuccess: (res) => {
+      setPassword("");
+      setError(null);
+      setStage({ kind: "scan", ...res });
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+  const remove = useMutation({
+    mutationFn: () => removeTwoFactor(password, code),
+    onSuccess: () => {
+      toast.success(t("twoFactorRemoved"));
+      close();
+      void refresh();
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+  const open = stage.kind !== "closed";
+  // Once the codes exist the app is on; closing the dialog any way just finishes.
+  const finish = () => {
+    close();
+    void refresh();
+  };
+
+  return (
+    <SettingCard title={t("twoFactorTitle")} description={on ? t("twoFactorOnHint") : t("twoFactorOffHint")}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm">
+          <Smartphone className="h-4 w-4 text-muted-foreground" />
+          <span className={on ? "font-medium text-primary" : "text-muted-foreground"}>
+            {on ? t("twoFactorOn") : t("twoFactorOff")}
+          </span>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setStage({ kind: on ? "remove" : "password" })}
+        >
+          {on ? <ShieldOff className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+          {on ? t("twoFactorRemove") : t("twoFactorAdd")}
+        </Button>
+      </div>
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          if (o) return;
+          if (stage.kind === "codes") finish();
+          else close();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogTitle className="font-serif text-xl font-normal">
+            {stage.kind === "remove" ? t("twoFactorRemove") : t("twoFactorAdd")}
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            {stage.kind === "remove"
+              ? t("twoFactorRemoveHint")
+              : stage.kind === "codes"
+                ? t("recoveryShownOnce")
+                : t("twoFactorAddHint")}
+          </DialogDescription>
+          <div className="pt-2">
+            {stage.kind === "password" ? (
+              <form
+                className="space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setError(null);
+                  if (password) begin.mutate();
+                }}
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor="two-factor-password" className="text-xs text-muted-foreground">
+                    {t("password")}
+                  </Label>
+                  <Input
+                    id="two-factor-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    autoFocus
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+                <ErrorLine error={error} />
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" onClick={close}>
+                    {tCommon("cancel")}
+                  </Button>
+                  <Button type="submit" className="gap-1.5" disabled={!password || begin.isPending}>
+                    {begin.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {t("twoFactorContinue")}
+                  </Button>
+                </div>
+              </form>
+            ) : stage.kind === "scan" ? (
+              <ScanStep
+                qr={stage.qr}
+                secret={stage.secret}
+                verifyLabel={t("twoFactorVerify")}
+                onBack={() => setStage({ kind: "password" })}
+                onVerify={async (value) => {
+                  const res = await confirmTwoFactor(stage.setupId, value);
+                  setStage({ kind: "codes", codes: res.recoveryCodes });
+                  void refresh();
+                }}
+              />
+            ) : stage.kind === "codes" ? (
+              <CodesStep
+                codes={stage.codes}
+                onDone={() => {
+                  toast.success(t("twoFactorAdded"));
+                  finish();
+                }}
+              />
+            ) : stage.kind === "remove" ? (
+              <form
+                className="space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setError(null);
+                  if (password && code) remove.mutate();
+                }}
+              >
+                <div className="space-y-1.5">
+                  <Label htmlFor="two-factor-remove-password" className="text-xs text-muted-foreground">
+                    {t("password")}
+                  </Label>
+                  <Input
+                    id="two-factor-remove-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    autoFocus
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="two-factor-remove-code" className="text-xs text-muted-foreground">
+                    {t("code")}
+                  </Label>
+                  <CodeInput id="two-factor-remove-code" value={code} onChange={setCode} />
+                </div>
+                <ErrorLine error={error} />
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" onClick={close}>
+                    {tCommon("cancel")}
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="destructive"
+                    className="gap-1.5"
+                    disabled={!password || code.length !== 6 || remove.isPending}
+                  >
+                    {remove.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {t("twoFactorRemove")}
+                  </Button>
+                </div>
+              </form>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </SettingCard>
+  );
+}
+
 function RecoveryCard({ left }: { left: number }) {
   const t = useTranslations("auth.settings");
   const tCommon = useTranslations("common");
@@ -476,7 +674,7 @@ function SessionsCard() {
   );
 }
 
-function TurnOffCard() {
+function TurnOffCard({ twoFactor }: { twoFactor: boolean }) {
   const t = useTranslations("auth.settings");
   const tCommon = useTranslations("common");
   const errorMessage = useAuthErrorMessage();
@@ -508,13 +706,15 @@ function TurnOffCard() {
       <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : close())}>
         <DialogContent className="max-w-md">
           <DialogTitle className="font-serif text-xl font-normal">{t("turnOff")}</DialogTitle>
-          <DialogDescription className="text-xs">{t("turnOffConfirmHint")}</DialogDescription>
+          <DialogDescription className="text-xs">
+            {twoFactor ? t("turnOffConfirmHint") : t("turnOffConfirmHintPassword")}
+          </DialogDescription>
           <form
             className="space-y-3 pt-2"
             onSubmit={(e) => {
               e.preventDefault();
               setError(null);
-              if (password && code.length === 6) mutation.mutate();
+              if (password && (!twoFactor || code.length === 6)) mutation.mutate();
             }}
           >
             <div className="space-y-1.5">
@@ -530,12 +730,14 @@ function TurnOffCard() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="turnoff-code" className="text-xs text-muted-foreground">
-                {t("code")}
-              </Label>
-              <CodeInput id="turnoff-code" value={code} onChange={setCode} />
-            </div>
+            {twoFactor ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="turnoff-code" className="text-xs text-muted-foreground">
+                  {t("code")}
+                </Label>
+                <CodeInput id="turnoff-code" value={code} onChange={setCode} />
+              </div>
+            ) : null}
             <ErrorLine error={error} />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={close}>
@@ -545,7 +747,7 @@ function TurnOffCard() {
                 type="submit"
                 variant="destructive"
                 className="gap-1.5"
-                disabled={!password || code.length !== 6 || mutation.isPending}
+                disabled={!password || (twoFactor && code.length !== 6) || mutation.isPending}
               >
                 {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {t("turnOff")}

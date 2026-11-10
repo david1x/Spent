@@ -297,15 +297,15 @@ Open `http://127.0.0.1:4005`. The image bundles Chromium for the bank scrapers, 
 
 ### Putting Spent on a domain
 
-Spent has no sign-in by default, because on your own computer there is nothing to sign in to. Before you make it reachable from other devices or the internet, turn on **Settings → Security → Turn on sign-in**: a name, a password and a 6-digit code from an authenticator app (Google Authenticator, 1Password, Bitwarden and others), plus ten single-use recovery codes.
+Spent has no sign-in by default, because on your own computer there is nothing to sign in to. Before you make it reachable from other devices or the internet, turn on **Settings → Security → Turn on sign-in**: a name and a password. The 6-digit code from an authenticator app (Google Authenticator, 1Password, Bitwarden and others), with ten single-use recovery codes, is optional but recommended for anything on the internet; add or remove it later on the same page.
 
 - Serve it over HTTPS through a reverse proxy (Caddy, Traefik, nginx). The session cookie is marked secure when requests arrive over HTTPS.
 - Set `SPENT_AUTH_REQUIRED=1` (there's a commented line in `docker-compose.yml`) so even a fresh install asks you to create the sign-in before anything else, including setup and restore.
-- Locked out (lost phone and recovery codes)? On the server: `npm run auth:reset`, or `docker exec spent node scripts/reset-sign-in.mjs`. It turns sign-in off and leaves your data alone.
+- Locked out (forgot the password, or lost your phone and recovery codes)? On the server: `npm run auth:reset`, or `docker exec spent node scripts/reset-sign-in.mjs`. It turns sign-in off and leaves your data alone.
 
 ### Sharing with someone
 
-With sign-in on, **Settings → Sharing** makes an invite link for the workspaces you pick. The person who opens it creates their own name, password and authenticator code, and from then on sees those workspaces read-only: transactions, budgets, insights. They can't sync, edit, set budgets, see bank logins or open Settings; the server enforces that, not just the screens.
+With sign-in on, **Settings → Sharing** makes an invite link for the workspaces you pick. The person who opens it creates their own name and password (and, if they want, an authenticator code), and from then on sees those workspaces read-only: transactions, budgets, insights. They can't sync, edit, set budgets, see bank logins or open Settings; the server enforces that, not just the screens.
 
 The one thing they can do is suggest a different category for a transaction. Suggestions wait on your Home and Transactions pages until you approve or decline them; approving applies the category as if you'd picked it. Links work once and expire after 7 days. You can change what each person sees, sign them out, or stop sharing at any time; turning sign-in off ends all sharing.
 

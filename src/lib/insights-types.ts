@@ -90,6 +90,8 @@ export interface CommittedPlan {
 export interface CommittedPeriod {
   periodStart: string;
   periodEnd: string;
+  /** The period we're in; amounts cover only what's due after today. */
+  current: boolean;
   installments: number;
   recurring: number;
   plans: CommittedPlan[];

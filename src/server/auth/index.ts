@@ -9,8 +9,9 @@ import { generateTotpSecret, matchTotp, otpauthUri } from "./totp";
 /**
  * Optional sign-in for Spent, for when it's reachable from outside this
  * computer (a domain, a reverse proxy). Off by default: a local install has
- * nothing to sign in to. The owner's account: a name, a password and an
- * authenticator app (6-digit codes), plus single-use recovery codes. The owner
+ * nothing to sign in to. The owner's account: a name and a password, and if
+ * they choose, an authenticator app (6-digit codes) with single-use recovery
+ * codes. Each account decides that for itself. The owner
  * can invite viewers (see ./sharing.ts), who sign in the same way, see only
  * the workspaces shared with them and can't change anything.
  *
@@ -50,6 +51,8 @@ export type AuthErrorCode =
   | "invalid_username"
   | "name_taken"
   | "invite_invalid"
+  | "no_two_factor"
+  | "two_factor_on"
   | "invalid_request";
 
 export class AuthError extends Error {
@@ -81,6 +84,13 @@ interface PendingEnrollment {
   /** Set when a viewer is joining through an invite link. */
   inviteHash?: string;
 }
+/** A signed-in account adding an authenticator app. */
+interface PendingSetup {
+  expires: number;
+  tries: number;
+  account: Account;
+  secret: string;
+}
 interface Counter {
   count: number;
   resetAt: number;
@@ -88,6 +98,7 @@ interface Counter {
 interface AuthMemory {
   logins: Map<string, PendingLogin>;
   enrollments: Map<string, PendingEnrollment>;
+  setups: Map<string, PendingSetup>;
   failures: Map<string, Counter>;
 }
 
@@ -96,7 +107,9 @@ declare global {
 }
 
 function memory(): AuthMemory {
-  globalThis._spentAuth ??= { logins: new Map(), enrollments: new Map(), failures: new Map() };
+  globalThis._spentAuth ??= { logins: new Map(), enrollments: new Map(), setups: new Map(), failures: new Map() };
+  // A dev reload can keep memory from before `setups` existed.
+  globalThis._spentAuth.setups ??= new Map();
   return globalThis._spentAuth;
 }
 
@@ -217,9 +230,15 @@ export type Account = { kind: "owner" } | { kind: "viewer"; id: number };
 
 const OWNER: Account = { kind: "owner" };
 
-/** Where an account's authenticator secret and recovery codes live. */
+/**
+ * Where an account's authenticator secret and recovery codes live. No secret
+ * means the account signs in with its password alone (a viewer's row stores
+ * an empty string, since the column can't be NULL).
+ */
 interface Factors {
   secret(): string | null;
+  /** Sets or (null) removes the authenticator; removing also drops the recovery codes. */
+  setSecret(secret: string | null, step: number): void;
   lastStep(): number;
   setLastStep(step: number): void;
   recovery(): string[];
@@ -230,6 +249,16 @@ function factorsFor(account: Account): Factors {
   if (account.kind === "owner") {
     return {
       secret: () => openSecret(getGlobalSetting(KEYS.totpSecret)),
+      setSecret: (secret, step) => {
+        if (secret) {
+          setGlobalSetting(KEYS.totpSecret, sealSecret(secret));
+          setGlobalSetting(KEYS.totpLastStep, String(step));
+        } else {
+          deleteGlobalSetting(KEYS.totpSecret);
+          deleteGlobalSetting(KEYS.totpLastStep);
+          deleteGlobalSetting(KEYS.recoveryCodes);
+        }
+      },
       lastStep: () => Number(getGlobalSetting(KEYS.totpLastStep) ?? -1),
       setLastStep: (step) => setGlobalSetting(KEYS.totpLastStep, String(step)),
       recovery: () => parseHashes(getGlobalSetting(KEYS.recoveryCodes)),
@@ -243,6 +272,11 @@ function factorsFor(account: Account): Factors {
       | undefined;
   return {
     secret: () => openSecret(row()?.totp_secret),
+    setSecret: (secret, step) => {
+      db.prepare(
+        "UPDATE viewers SET totp_secret = ?, totp_last_step = ?, recovery_codes = CASE WHEN ? THEN recovery_codes ELSE '[]' END WHERE id = ?"
+      ).run(secret ? sealSecret(secret) : "", step, secret ? 1 : 0, account.id);
+    },
     lastStep: () => row()?.totp_last_step ?? -1,
     setLastStep: (step) => {
       db.prepare("UPDATE viewers SET totp_last_step = ? WHERE id = ?").run(step, account.id);
@@ -252,6 +286,18 @@ function factorsFor(account: Account): Factors {
       db.prepare("UPDATE viewers SET recovery_codes = ? WHERE id = ?").run(JSON.stringify(hashes), account.id);
     },
   };
+}
+
+function hasTwoFactor(account: Account): boolean {
+  return factorsFor(account).secret() != null;
+}
+
+function storedPasswordHash(account: Account): string | null {
+  if (account.kind === "owner") return getGlobalSetting(KEYS.passwordHash);
+  const row = getDb().prepare("SELECT password_hash FROM viewers WHERE id = ?").get(account.id) as
+    | { password_hash: string }
+    | undefined;
+  return row?.password_hash ?? null;
 }
 
 /**
@@ -306,12 +352,15 @@ export interface AuthStatus {
   /** The owner's name, for a viewer ("shared by ..."). */
   ownerName: string | null;
   enabledAt: string | null;
+  /** This account also asks for an authenticator code. */
+  twoFactor: boolean;
   recoveryCodesLeft: number;
 }
 
 /** What the signed-in account (or, with sign-in off, the owner) may know about itself. */
 export function getAuthStatus(access: Access): AuthStatus {
   const enabled = isAuthEnabled();
+  const twoFactor = enabled && hasTwoFactor(accountOf(access));
   return {
     enabled,
     requiredByServer: isAuthRequiredByEnv(),
@@ -319,7 +368,8 @@ export function getAuthStatus(access: Access): AuthStatus {
     username: access.role === "viewer" ? access.username : ownerName(),
     ownerName: ownerName(),
     enabledAt: enabled ? getGlobalSetting(KEYS.enabledAt) : null,
-    recoveryCodesLeft: enabled ? factorsFor(accountOf(access)).recovery().length : 0,
+    twoFactor,
+    recoveryCodesLeft: twoFactor ? factorsFor(accountOf(access)).recovery().length : 0,
   };
 }
 
@@ -460,9 +510,14 @@ export function endOtherSessions(currentToken: string | undefined | null): numbe
 }
 
 // ---------------------------------------------------------------------------
-// Signing in: password first, then a code, against a short-lived ticket.
+// Signing in: password first, then (with an authenticator) a code, against a
+// short-lived ticket. Without one, the password alone signs in.
 
-export function beginLogin(username: string, password: string, client: ClientInfo): string {
+export function beginLogin(
+  username: string,
+  password: string,
+  client: ClientInfo
+): { ticket: string } | { token: string } {
   sweep(memory().logins);
   assertNotLimited(client.ip);
   if (!isAuthEnabled()) throw new AuthError("not_enabled", "Sign-in isn't set up yet.");
@@ -480,9 +535,13 @@ export function beginLogin(username: string, password: string, client: ClientInf
     throw new AuthError("invalid_credentials", "That name and password don't match.", 401);
   }
   const account: Account = viewer ? { kind: "viewer", id: viewer.id } : OWNER;
+  if (!hasTwoFactor(account)) {
+    clearFailures(client.ip);
+    return { token: createSession(client, account) };
+  }
   const ticket = crypto.randomBytes(24).toString("base64url");
   memory().logins.set(ticket, { expires: Date.now() + PENDING_MINUTES * 60_000, tries: 0, account });
-  return ticket;
+  return { ticket };
 }
 
 export function finishLogin(
@@ -593,20 +652,35 @@ export function finishEnrollment(
 ): { token: string; recoveryCodes: string[] } {
   if (isAuthEnabled()) throw new AuthError("already_enabled", "Sign-in is already on.", 409);
   const { pending, step } = takeEnrollment(enrollmentId, code, client, false);
-
   const recoveryCodes = newRecoveryCodes();
+  saveOwner(pending.username, pending.passwordHash, { secret: pending.secret, step, recoveryCodes });
+  return { token: createSession(client, OWNER), recoveryCodes };
+}
+
+/** The owner turning sign-in on with a password alone. */
+export function enrollWithoutCode(username: string, password: string, client: ClientInfo): { token: string } {
+  if (isAuthEnabled()) throw new AuthError("already_enabled", "Sign-in is already on.", 409);
+  validateNewAccount(username, password);
+  saveOwner(username.trim(), hashPassword(password), null);
+  return { token: createSession(client, OWNER) };
+}
+
+function saveOwner(
+  username: string,
+  passwordHash: string,
+  factor: { secret: string; step: number; recoveryCodes: string[] } | null
+): void {
   const db = getDb();
   db.transaction(() => {
-    setGlobalSetting(KEYS.username, pending.username);
-    setGlobalSetting(KEYS.passwordHash, pending.passwordHash);
-    setGlobalSetting(KEYS.totpSecret, sealSecret(pending.secret));
-    setGlobalSetting(KEYS.totpLastStep, String(step));
-    setGlobalSetting(KEYS.recoveryCodes, JSON.stringify(hashRecoveryCodes(recoveryCodes)));
+    setGlobalSetting(KEYS.username, username);
+    setGlobalSetting(KEYS.passwordHash, passwordHash);
+    const factors = factorsFor(OWNER);
+    factors.setSecret(factor?.secret ?? null, factor?.step ?? -1);
+    if (factor) factors.setRecovery(hashRecoveryCodes(factor.recoveryCodes));
     setGlobalSetting(KEYS.enabledAt, new Date().toISOString());
     db.prepare("DELETE FROM auth_sessions").run();
     setGlobalSetting(KEYS.enabled, "1");
   })();
-  return { token: createSession(client, OWNER), recoveryCodes };
 }
 
 // ---------------------------------------------------------------------------
@@ -654,13 +728,7 @@ export function renameAccount(access: Access, username: string, password: string
   const account = accountOf(access);
   const name = validateName(username);
   assertNotLimited(client.ip);
-  const stored =
-    account.kind === "owner"
-      ? getGlobalSetting(KEYS.passwordHash)
-      : ((getDb().prepare("SELECT password_hash FROM viewers WHERE id = ?").get(account.id) as
-          | { password_hash: string }
-          | undefined)?.password_hash ?? null);
-  if (!verifyPassword(password, stored)) {
+  if (!verifyPassword(password, storedPasswordHash(account))) {
     recordFailure(client.ip);
     throw new AuthError("invalid_credentials", "That password isn't right.", 401);
   }
@@ -704,11 +772,40 @@ export function finishViewerEnrollment(
 ): { token: string; recoveryCodes: string[] } {
   const { pending, step } = takeEnrollment(enrollmentId, code, client, true);
   const recoveryCodes = newRecoveryCodes();
+  const viewerId = saveViewer(pending.inviteHash ?? "", pending.username, pending.passwordHash, {
+    secret: pending.secret,
+    step,
+    recoveryCodes,
+  });
+  return { token: createSession(client, { kind: "viewer", id: viewerId }), recoveryCodes };
+}
+
+/** Joining through an invite with a password alone. */
+export function joinWithoutCode(
+  inviteToken: string,
+  username: string,
+  password: string,
+  client: ClientInfo
+): { token: string } {
+  if (!findUsableInvite(inviteToken)) throw INVITE_GONE();
+  validateNewAccount(username, password);
+  assertNameFree(username);
+  const viewerId = saveViewer(hashInviteToken(inviteToken), username.trim(), hashPassword(password), null);
+  return { token: createSession(client, { kind: "viewer", id: viewerId }) };
+}
+
+/** Creates the viewer and uses up the invite, in one go. */
+function saveViewer(
+  inviteHash: string,
+  username: string,
+  passwordHash: string,
+  factor: { secret: string; step: number; recoveryCodes: string[] } | null
+): number {
   const db = getDb();
-  const viewerId = db.transaction(() => {
-    const invite = db.prepare(USABLE_INVITE_SQL).get(pending.inviteHash) as InviteRow | undefined;
+  return db.transaction(() => {
+    const invite = db.prepare(USABLE_INVITE_SQL).get(inviteHash) as InviteRow | undefined;
     if (!invite || !isAuthEnabled()) throw INVITE_GONE();
-    assertNameFree(pending.username);
+    assertNameFree(username);
     const id = Number(
       db
         .prepare(
@@ -716,11 +813,11 @@ export function finishViewerEnrollment(
            VALUES (?, ?, ?, ?, ?)`
         )
         .run(
-          pending.username,
-          pending.passwordHash,
-          sealSecret(pending.secret),
-          step,
-          JSON.stringify(hashRecoveryCodes(recoveryCodes))
+          username,
+          passwordHash,
+          factor ? sealSecret(factor.secret) : "",
+          factor?.step ?? -1,
+          JSON.stringify(factor ? hashRecoveryCodes(factor.recoveryCodes) : [])
         ).lastInsertRowid
     );
     const share = db.prepare(
@@ -730,7 +827,6 @@ export function finishViewerEnrollment(
     db.prepare("UPDATE share_invites SET used_at = datetime('now'), viewer_id = ? WHERE id = ?").run(id, invite.id);
     return id;
   })();
-  return { token: createSession(client, { kind: "viewer", id: viewerId }), recoveryCodes };
 }
 
 export function parseIds(raw: string): number[] {
@@ -753,9 +849,80 @@ function confirmWithCode(account: Account, code: string, client: ClientInfo): vo
   }
 }
 
+function confirmPassword(account: Account, password: string, client: ClientInfo): void {
+  assertNotLimited(client.ip);
+  if (!verifyPassword(password, storedPasswordHash(account))) {
+    recordFailure(client.ip);
+    throw new AuthError("invalid_credentials", "That password isn't right.", 401);
+  }
+}
+
+const NO_TWO_FACTOR = () => new AuthError("no_two_factor", "This account doesn't use an authenticator app.");
+
+/**
+ * Adding an authenticator app to a signed-in account, step one: the
+ * password. Nothing changes until a code from the app is confirmed.
+ */
+export function beginTwoFactorSetup(
+  access: Access,
+  password: string,
+  client: ClientInfo
+): { setupId: string; secret: string; uri: string } {
+  if (!isAuthEnabled()) throw new AuthError("not_enabled", "Sign-in is off.");
+  const account = accountOf(access);
+  if (hasTwoFactor(account)) throw new AuthError("two_factor_on", "The authenticator app is already set up.", 409);
+  confirmPassword(account, password, client);
+  sweep(memory().setups);
+  const secret = generateTotpSecret();
+  const setupId = crypto.randomBytes(24).toString("base64url");
+  memory().setups.set(setupId, { expires: Date.now() + PENDING_MINUTES * 60_000, tries: 0, account, secret });
+  const name = access.role === "viewer" ? access.username : (ownerName() ?? "Spent");
+  return { setupId, secret, uri: otpauthUri(secret, name) };
+}
+
+const sameAccount = (a: Account, b: Account) =>
+  a.kind === "owner" ? b.kind === "owner" : b.kind === "viewer" && a.id === b.id;
+
+/** Step two: a code from the app. Saves it and returns new recovery codes. */
+export function finishTwoFactorSetup(access: Access, setupId: string, code: string, client: ClientInfo): string[] {
+  sweep(memory().setups);
+  assertNotLimited(client.ip);
+  const account = accountOf(access);
+  const pending = memory().setups.get(setupId);
+  if (!pending || !sameAccount(pending.account, account)) {
+    throw new AuthError("expired", "That took too long. Start again.", 400);
+  }
+  const step = matchTotp(pending.secret, code);
+  if (step == null) {
+    recordFailure(client.ip);
+    if (++pending.tries >= MAX_CODE_TRIES) memory().setups.delete(setupId);
+    throw new AuthError("invalid_code", "That code didn't match. Check the time on your phone and try the newest code.");
+  }
+  memory().setups.delete(setupId);
+  clearFailures(client.ip);
+  const codes = newRecoveryCodes();
+  getDb().transaction(() => {
+    const factors = factorsFor(account);
+    factors.setSecret(pending.secret, step);
+    factors.setRecovery(hashRecoveryCodes(codes));
+  })();
+  return codes;
+}
+
+/** Back to the password alone, confirmed with the password and a current code. */
+export function removeTwoFactor(access: Access, password: string, code: string, client: ClientInfo): void {
+  if (!isAuthEnabled()) throw new AuthError("not_enabled", "Sign-in is off.");
+  const account = accountOf(access);
+  if (!hasTwoFactor(account)) throw NO_TWO_FACTOR();
+  confirmPassword(account, password, client);
+  confirmWithCode(account, code, client);
+  factorsFor(account).setSecret(null, -1);
+}
+
 export function regenerateRecoveryCodes(access: Access, code: string, client: ClientInfo): string[] {
   if (!isAuthEnabled()) throw new AuthError("not_enabled", "Sign-in is off.");
   const account = accountOf(access);
+  if (!hasTwoFactor(account)) throw NO_TWO_FACTOR();
   confirmWithCode(account, code, client);
   const codes = newRecoveryCodes();
   factorsFor(account).setRecovery(hashRecoveryCodes(codes));
@@ -764,12 +931,8 @@ export function regenerateRecoveryCodes(access: Access, code: string, client: Cl
 
 export function disableAuth(password: string, code: string, client: ClientInfo): void {
   if (!isAuthEnabled()) throw new AuthError("not_enabled", "Sign-in is off.");
-  assertNotLimited(client.ip);
-  if (!verifyPassword(password, getGlobalSetting(KEYS.passwordHash))) {
-    recordFailure(client.ip);
-    throw new AuthError("invalid_credentials", "That password isn't right.", 401);
-  }
-  confirmWithCode(OWNER, code, client);
+  confirmPassword(OWNER, password, client);
+  if (hasTwoFactor(OWNER)) confirmWithCode(OWNER, code, client);
   const db = getDb();
   // With sign-in off nobody can be told apart, so sharing ends too.
   db.transaction(() => {

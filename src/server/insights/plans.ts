@@ -119,19 +119,25 @@ function committedSeries(series: RecurringSeries[]): RecurringSeries[] {
   return series.filter((s) => s.direction === "expense" && s.counted && isExpected(s));
 }
 
-/** The next `count` periods: installments already agreed to plus recurring charges. */
+/**
+ * What's still to pay in the current period (after today), then the next
+ * `count` periods: installments already agreed to plus recurring charges.
+ */
 export function committedPeriods(
   current: Period,
   startDay: number,
   plans: ActivePlan[],
   series: RecurringSeries[],
-  count = 6
+  today: string,
+  count = 5
 ): CommittedPeriod[] {
   const out: CommittedPeriod[] = [];
   const recurring = committedSeries(series);
-  for (let i = 1; i <= count; i++) {
+  for (let i = 0; i <= count; i++) {
     const p = shiftPeriod(current, i, startDay);
-    const from = toISODay(p.start);
+    const periodStart = toISODay(p.start);
+    // Already paid this period is spending, not a commitment.
+    const from = i === 0 ? addDays(today, 1) : periodStart;
     const to = toISODay(p.end);
     let installments = 0;
     const planRows: CommittedPeriod["plans"] = [];
@@ -152,8 +158,9 @@ export function committedPeriods(
       }
     }
     out.push({
-      periodStart: from,
+      periodStart,
       periodEnd: to,
+      current: i === 0,
       installments: round2(installments),
       recurring: round2(rec),
       plans: planRows.sort((a, b) => b.amount - a.amount),

@@ -8,6 +8,8 @@ export interface AuthStatus {
   username?: string | null;
   ownerName?: string | null;
   enabledAt?: string | null;
+  /** This account also asks for an authenticator code. */
+  twoFactor?: boolean;
   recoveryCodesLeft?: number;
 }
 
@@ -45,8 +47,9 @@ async function call<T>(url: string, init?: RequestInit & { json?: unknown }): Pr
 
 export const getAuthStatus = () => call<AuthStatus>("/api/auth/status");
 
+/** A ticket for the code step, or `signedIn` for an account without an authenticator app. */
 export const startLogin = (username: string, password: string) =>
-  call<{ ticket: string }>("/api/auth/login", { method: "POST", json: { username, password } });
+  call<{ ticket?: string; signedIn?: boolean }>("/api/auth/login", { method: "POST", json: { username, password } });
 
 export const finishLogin = (ticket: string, code: string) =>
   call<{ usedRecoveryCode: boolean; recoveryCodesLeft: number }>("/api/auth/verify", {
@@ -56,10 +59,13 @@ export const finishLogin = (ticket: string, code: string) =>
 
 export const signOut = () => call<{ success: boolean }>("/api/auth/logout", { method: "POST", json: {} });
 
-export const startEnrollment = (username: string, password: string) =>
-  call<{ enrollmentId: string; secret: string; qr: string }>("/api/auth/enroll", {
+/** The authenticator step to show next, or `done` when the account was made without one. */
+export type EnrollStart = { enrollmentId: string; secret: string; qr: string } | { done: true };
+
+export const startEnrollment = (username: string, password: string, twoFactor: boolean) =>
+  call<EnrollStart>("/api/auth/enroll", {
     method: "POST",
-    json: { username, password },
+    json: { username, password, twoFactor },
   });
 
 export const finishEnrollment = (enrollmentId: string, code: string) =>
@@ -76,6 +82,15 @@ export const endOtherAuthSessions = () =>
 export const newRecoveryCodes = (code: string) =>
   call<{ recoveryCodes: string[] }>("/api/auth/recovery-codes", { method: "POST", json: { code } });
 
+export const startTwoFactor = (password: string) =>
+  call<{ setupId: string; secret: string; qr: string }>("/api/auth/two-factor", { method: "POST", json: { password } });
+
+export const confirmTwoFactor = (setupId: string, code: string) =>
+  call<{ recoveryCodes: string[] }>("/api/auth/two-factor/confirm", { method: "POST", json: { setupId, code } });
+
+export const removeTwoFactor = (password: string, code: string) =>
+  call<{ success: boolean }>("/api/auth/two-factor", { method: "DELETE", json: { password, code } });
+
 export const disableSignIn = (password: string, code: string) =>
   call<{ success: boolean }>("/api/auth/disable", { method: "POST", json: { password, code } });
 
@@ -87,10 +102,10 @@ export interface InviteInfo {
 
 export const getInvite = (token: string) => call<InviteInfo>(`/api/invites/${encodeURIComponent(token)}`);
 
-export const startInviteEnrollment = (token: string, username: string, password: string) =>
-  call<{ enrollmentId: string; secret: string; qr: string }>(`/api/invites/${encodeURIComponent(token)}/enroll`, {
+export const startInviteEnrollment = (token: string, username: string, password: string, twoFactor: boolean) =>
+  call<EnrollStart>(`/api/invites/${encodeURIComponent(token)}/enroll`, {
     method: "POST",
-    json: { username, password },
+    json: { username, password, twoFactor },
   });
 
 export const finishInviteEnrollment = (enrollmentId: string, code: string) =>
