@@ -112,7 +112,27 @@ async function describeBoxes(inputs: ElementHandle<Element>[]): Promise<string> 
   return `${inputs.length} boxes, page order runs ${order} on screen, row direction ${dir}`;
 }
 
-const isSignedIn = (url: string) => SIGNED_IN.some((re) => re.test(url));
+/**
+ * The words of the popup around the code boxes, digits masked: what Hapoalim
+ * says it wants and where it sent the code. The popup is the nearest
+ * container that also holds the code's button.
+ */
+async function describePopup(box: ElementHandle<Element>): Promise<string> {
+  return box
+    // Runs in the page; no named inner functions (see submitCode).
+    .evaluate((el, submitSource: string) => {
+      const re = new RegExp(submitSource);
+      let node = el.parentElement;
+      while (node && node.parentElement) {
+        if (Array.from(node.querySelectorAll<HTMLElement>("button")).some((b) => re.test(b.innerText || ""))) break;
+        node = node.parentElement;
+      }
+      return (node?.innerText || "").replace(/\s+/g, " ").trim().replace(/\d/g, "#").slice(0, 400);
+    }, SUBMIT_TEXT.source)
+    .catch(() => "?");
+}
+
+const isSignedIn = (url: string) =>SIGNED_IN.some((re) => re.test(url));
 
 async function waitForUrlChange(page: Page, from: string, ms: number): Promise<void> {
   const until = Date.now() + ms;
@@ -445,6 +465,7 @@ export class SpentHapoalimScraper extends HapoalimScraper {
     }
     if (!this.askForCode) throw new Error(CODE_NEEDED_MESSAGE);
     console.log(`[scraper] Bank Hapoalim asked for a one-time code (${await describeBoxes(target.inputs)})`);
+    console.log(`[scraper] Hapoalim's code popup says: "${await describePopup(target.inputs[0])}"`);
     const askedAt = Date.now();
     const code = (await this.askForCode()).replace(/\D/g, "");
     this.onCodeSubmitted?.();
@@ -488,7 +509,9 @@ export class SpentHapoalimScraper extends HapoalimScraper {
       console.log(`[scraper] Hapoalim locked code entry after the code: ${await describePage(page)}`);
       throw new Error(CODE_LOCKED_MESSAGE);
     }
-    if (page.url() === before && (await findCodeInputs(page))) {
+    const still = page.url() === before ? await findCodeInputs(page) : null;
+    if (still) {
+      console.log(`[scraper] Hapoalim's code popup now says: "${await describePopup(still.inputs[0])}"`);
       console.log(`[scraper] Hapoalim turned the code down: ${await describePage(page)}`);
       throw new Error(CODE_REJECTED_MESSAGE);
     }
