@@ -81,6 +81,8 @@ interface InsertResult {
   updated: number;
   /** Other workspaces that received rows because a card is routed there. */
   routedWorkspaceIds: number[];
+  /** How many times each pending row came back this time, keyed "workspaceId:dedupHash". */
+  pendingSeen: Map<string, number>;
 }
 
 export function insertTransactions(
@@ -97,6 +99,7 @@ export function insertTransactions(
   // Hashes are counted per workspace, since a routed card's rows dedup
   // against the workspace they land in.
   const hashCounts = new Map<string, number>();
+  const pendingSeen = new Map<string, number>();
   const routes = getCardRouteMap(credentialId);
   const routedWorkspaceIds = new Set<number>();
 
@@ -159,6 +162,7 @@ export function insertTransactions(
       const countKey = `${targetWorkspaceId}:${hash}`;
       const batchCount = (hashCounts.get(countKey) ?? 0) + 1;
       hashCounts.set(countKey, batchCount);
+      if (txn.status === "pending") pendingSeen.set(countKey, (pendingSeen.get(countKey) ?? 0) + 1);
 
       const { count: existingCount } = existingCountStmt.get(targetWorkspaceId, hash) as {
         count: number;
@@ -208,7 +212,129 @@ export function insertTransactions(
   });
 
   batchInsert();
-  return { added, updated, routedWorkspaceIds: [...routedWorkspaceIds] };
+  return { added, updated, routedWorkspaceIds: [...routedWorkspaceIds], pendingSeen };
+}
+
+interface PendingRow {
+  id: number;
+  workspace_id: number;
+  account_number: string;
+  date: string;
+  original_amount: number;
+  original_currency: string;
+  description: string;
+  dedup_hash: string;
+  dedup_sequence: number;
+  category_id: number | null;
+  category_source: string | null;
+  is_excluded: number;
+  display_name: string | null;
+  note: string | null;
+  charged_by_user: number;
+  charged_amount: number;
+  spread_months: number | null;
+}
+
+/** Days apart a pending charge and its settled row can be (the settled one can carry another time, or the next day). */
+const SETTLE_WINDOW_DAYS = 3;
+
+/**
+ * Pending rows the bank stopped reporting as pending. A pending charge has
+ * the card company's approval number, and the settled row that replaces it
+ * has a voucher number (and sometimes another minute), so the two never
+ * share a dedup hash and the settled one used to be added beside it.
+ *
+ * Runs after a successful sync, for the accounts that sync read. A pending
+ * row this sync returned again stays. Otherwise its settled twin (same card,
+ * amount, currency and description, within a few days) takes over whatever
+ * the user set on it, and the pending row goes. With no twin, the charge was
+ * cancelled: the row goes, unless the user edited it.
+ *
+ * Returns how many pending rows were removed.
+ */
+export function settleStalePending(
+  credentialId: number,
+  accountNumbers: string[],
+  since: Date,
+  pendingSeen: Map<string, number>
+): number {
+  if (accountNumbers.length === 0) return 0;
+  const db = getDb();
+  const marks = accountNumbers.map(() => "?").join(", ");
+  const pending = db
+    .prepare(
+      `SELECT id, workspace_id, account_number, date, original_amount, original_currency, description,
+              dedup_hash, dedup_sequence, category_id, category_source, is_excluded, display_name, note,
+              charged_by_user, charged_amount, spread_months
+       FROM transactions
+       WHERE credential_id = ? AND status = 'pending' AND account_number IN (${marks}) AND date >= ?
+       ORDER BY date, id`
+    )
+    .all(credentialId, ...accountNumbers, since.toISOString()) as PendingRow[];
+  if (pending.length === 0) return 0;
+
+  const findTwin = db.prepare(
+    `SELECT id, category_source, display_name, note, charged_by_user, charged_amount, charged_estimated, spread_months
+     FROM transactions
+     WHERE workspace_id = ? AND credential_id = ? AND account_number = ? AND status = 'completed'
+       AND original_amount = ? AND original_currency = ? AND description = ?
+       AND abs(julianday(date) - julianday(?)) <= ${SETTLE_WINDOW_DAYS}
+       AND id NOT IN (SELECT value FROM json_each(?))
+     ORDER BY abs(julianday(date) - julianday(?)), id
+     LIMIT 1`
+  );
+  const carryCategory = db.prepare(
+    "UPDATE transactions SET category_id = ?, category_source = 'user', needs_review = 0 WHERE id = ?"
+  );
+  const carryText = db.prepare(
+    "UPDATE transactions SET display_name = COALESCE(display_name, ?), note = COALESCE(note, ?), spread_months = COALESCE(spread_months, ?), is_excluded = MAX(is_excluded, ?) WHERE id = ?"
+  );
+  const carryAmount = db.prepare(
+    `UPDATE transactions SET charged_auto = charged_amount, charged_auto_estimated = charged_estimated,
+       charged_amount = ?, charged_estimated = 0, charged_by_user = 1
+     WHERE id = ? AND charged_by_user = 0`
+  );
+  const moveRequests = db.prepare("UPDATE category_requests SET transaction_id = ? WHERE transaction_id = ?");
+  const remove = db.prepare("DELETE FROM transactions WHERE id = ?");
+
+  let removed = 0;
+  const claimed: number[] = [];
+  db.transaction(() => {
+    for (const p of pending) {
+      const seen = pendingSeen.get(`${p.workspace_id}:${p.dedup_hash}`) ?? 0;
+      if (p.dedup_sequence < seen) continue;
+      const twin = findTwin.get(
+        p.workspace_id,
+        credentialId,
+        p.account_number,
+        p.original_amount,
+        p.original_currency,
+        p.description,
+        p.date,
+        JSON.stringify(claimed),
+        p.date
+      ) as { id: number; category_source: string | null } | undefined;
+      const edited =
+        p.category_source === "user" ||
+        p.is_excluded === 1 ||
+        p.charged_by_user === 1 ||
+        p.display_name != null ||
+        p.note != null ||
+        p.spread_months != null;
+      if (twin) {
+        claimed.push(twin.id);
+        if (p.category_source === "user" && twin.category_source !== "user") carryCategory.run(p.category_id, twin.id);
+        carryText.run(p.display_name, p.note, p.spread_months, p.is_excluded, twin.id);
+        if (p.charged_by_user === 1) carryAmount.run(p.charged_amount, twin.id);
+        moveRequests.run(twin.id, p.id);
+      } else if (edited) {
+        continue;
+      }
+      remove.run(p.id);
+      removed++;
+    }
+  })();
+  return removed;
 }
 
 interface QueryParams {

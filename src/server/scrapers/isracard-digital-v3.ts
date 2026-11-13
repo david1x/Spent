@@ -325,6 +325,8 @@ export async function fetchDigitalV3Accounts(
   const byCard = new Map<string, Transaction[]>(cards.map((c) => [c.cardSuffix, []]));
   /** Active cards the site wouldn't serve this run, and why. Skipped from then on. */
   const unreadable = new Map<string, unknown>();
+  /** Approvals already listed per card: each month asked for can return the same ones. */
+  const approvalsSeen = new Map<string, Set<string>>();
   /**
    * Card status to send per card. The site sends 0 for active cards and 1 for
    * a cancelled one, whatever the list says (a cancelled card is listed as
@@ -432,10 +434,20 @@ export async function fetchDigitalV3Accounts(
         ...outOfStatement.flatMap((g) => g.immediateVouchersCurrencyDate ?? []),
       ];
       // A charge can appear both as a pending approval and as a settled
-      // voucher in the same response. Keep the settled one.
-      const pending = (data.approvals?.approvedTransactions ?? []).filter(
-        (a) => !allVouchers.some((v) => sameCharge(a, v))
-      );
+      // voucher in the same response. Keep the settled one. Approvals are the
+      // card's current list, so every month asked for can return the same
+      // ones; keep each approval once.
+      const seenApprovals = approvalsSeen.get(card.cardSuffix) ?? new Set<string>();
+      approvalsSeen.set(card.cardSuffix, seenApprovals);
+      const pending = (data.approvals?.approvedTransactions ?? []).filter((a) => {
+        if (allVouchers.some((v) => sameCharge(a, v))) return false;
+        const key = a.seqConfirmationNumber
+          ? `n:${a.seqConfirmationNumber}`
+          : `f:${a.purchaseDate}|${a.israelTransactionTime ?? ""}|${a.originalAmount}|${a.currencyIso}|${(a.businessName || "").trim()}`;
+        if (seenApprovals.has(key)) return false;
+        seenApprovals.add(key);
+        return true;
+      });
 
       const list = byCard.get(card.cardSuffix)!;
       list.push(...pending.map(fromApproved));

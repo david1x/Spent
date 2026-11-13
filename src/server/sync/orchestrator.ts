@@ -26,6 +26,7 @@ import {
 } from "@/server/db/queries/sync-runs";
 import {
   insertTransactions,
+  settleStalePending,
   getUncategorizedIdsByKind,
   getTransactionsForCategorization,
   batchUpdateCategories,
@@ -367,13 +368,20 @@ async function syncOneCredential(
     }))
   );
 
-  const { added, updated, routedWorkspaceIds } = insertTransactions(
+  const { added, updated, routedWorkspaceIds, pendingSeen } = insertTransactions(
     workspaceId,
     allTransactions,
     provider,
     meta.id,
     syncRunId
   );
+  const settled = settleStalePending(
+    meta.id,
+    result.accounts.map((a) => a.accountNumber),
+    startDate,
+    pendingSeen
+  );
+  if (settled > 0) console.log(`[sync] ${provider}: ${settled} pending row(s) settled or cancelled since the last sync`);
   for (const id of [workspaceId, ...routedWorkspaceIds]) {
     applyMerchantRulesToSyncRun(id, syncRunId);
   }
