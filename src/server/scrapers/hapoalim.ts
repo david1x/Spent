@@ -427,6 +427,55 @@ export class SpentHapoalimScraper extends HapoalimScraper {
   onCodeSubmitted?: () => void;
   /** A visible browser: the user types the code there, so don't ask for it. */
   visible = false;
+  /** Hapoalim's own API said code entry is locked ("LOCKED OTP"). */
+  private apiLocked = false;
+
+  /**
+   * Logs what Hapoalim's sign-in API answers, so a turned-down code shows the
+   * bank's own reason. Only paths, statuses and error codes; for the code
+   * calls, the shape of what the page sent (field names and lengths, never
+   * values).
+   */
+  private watchApi(page: Page): void {
+    page.on("response", (res) => {
+      const req = res.request();
+      if (!["xhr", "fetch"].includes(req.resourceType())) return;
+      let path: string;
+      try {
+        path = new URL(res.url()).pathname;
+      } catch {
+        return;
+      }
+      if (!/\/authenticate\//i.test(path)) return;
+      const isCodeCall = /otp/i.test(path);
+      res
+        .json()
+        .then((body: { error?: { errCode?: unknown; errDesc?: unknown } | null }) => {
+          const err = body?.error;
+          const desc = err ? `${String(err.errCode ?? "")} ${String(err.errDesc ?? "")}`.trim() : "ok";
+          if (/lock/i.test(desc)) this.apiLocked = true;
+          let sent = "";
+          if (isCodeCall && req.method() === "POST") {
+            try {
+              const data = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
+              sent = ` sent {${Object.entries(data)
+                .map(([k, v]) => `${k}:${typeof v === "string" ? v.length : typeof v}`)
+                .join(", ")}}`;
+            } catch {
+              sent = " sent (not JSON)";
+            }
+          }
+          console.log(`[scraper] Hapoalim api ${req.method()} ${path.replace(/\d/g, "#")} -> ${res.status()} ${desc.replace(/\d/g, "#").slice(0, 80)}${sent}`);
+        })
+        .catch(() => undefined);
+    });
+  }
+
+  override async login(credentials: Parameters<HapoalimScraper["login"]>[0]): ReturnType<HapoalimScraper["login"]> {
+    // Before the form is sent: the call that says "locked" comes right after it.
+    if (this.page) this.watchApi(this.page);
+    return super.login(credentials);
+  }
 
   override getLoginOptions(
     credentials: Parameters<HapoalimScraper["getLoginOptions"]>[0]
@@ -459,7 +508,7 @@ export class SpentHapoalimScraper extends HapoalimScraper {
       return;
     }
     // Already locked: asking for a code would only waste one.
-    if (await isLocked(page)) {
+    if (this.apiLocked || (await isLocked(page))) {
       console.log(`[scraper] Hapoalim has locked code entry: ${await describePage(page)}`);
       throw new Error(CODE_LOCKED_MESSAGE);
     }
@@ -473,7 +522,7 @@ export class SpentHapoalimScraper extends HapoalimScraper {
 
     // Look for the boxes again: the page may have redrawn its popup while
     // the user was reading the SMS, and the boxes found earlier would be gone.
-    if (await isLocked(page)) {
+    if (this.apiLocked || (await isLocked(page))) {
       console.log(`[scraper] Hapoalim locked code entry while waiting for the code: ${await describePage(page)}`);
       throw new Error(CODE_LOCKED_MESSAGE);
     }
@@ -505,7 +554,7 @@ export class SpentHapoalimScraper extends HapoalimScraper {
       `[scraper] Hapoalim code: all ${code.length} digits in place (${entered === "keys" ? "typed" : "set directly"}, ${waited}s after asking), ${pressed}`
     );
     await waitForCodeTaken(page, before, AFTER_CODE_MS);
-    if (page.url() === before && (await isLocked(page))) {
+    if (page.url() === before && (this.apiLocked || (await isLocked(page)))) {
       console.log(`[scraper] Hapoalim locked code entry after the code: ${await describePage(page)}`);
       throw new Error(CODE_LOCKED_MESSAGE);
     }
