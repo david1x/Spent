@@ -9,6 +9,7 @@ import {
 import { insertTransactions } from "@/server/db/queries/transactions";
 import { applyMerchantRulesToSyncRun } from "@/server/db/queries/excluded-merchants";
 import { getLoginAccounts } from "@/server/lib/card-bills";
+import { saveImportedBalance } from "@/server/db/queries/balances";
 import { finishImportedRows } from "@/server/sync/orchestrator";
 import type { ImportResult, ImportRow } from "@/lib/types";
 
@@ -36,7 +37,8 @@ function parseDay(value: unknown): Date | null {
 export function importTransactions(
   workspaceId: number,
   credentialId: number,
-  rows: unknown[]
+  rows: unknown[],
+  balance?: unknown
 ): ImportResult {
   const meta = getBankCredentialMeta(workspaceId, credentialId);
   if (!meta) throw new ImportError("That bank connection no longer exists.");
@@ -124,7 +126,17 @@ export function importTransactions(
   const touched = [workspaceId, ...routedWorkspaceIds];
   for (const id of touched) applyMerchantRulesToSyncRun(id, syncRunId);
   completeSyncRun(syncRunId, added, updated);
+
+  // The file's own balance, so the cash view has one for logins that only import.
+  let balanceSaved = false;
+  const b = balance as { amount?: unknown; date?: unknown } | null | undefined;
+  const balanceDay = parseDay(b?.date);
+  if (balanceDay && balanceDay <= latest && typeof b?.amount === "number" && Number.isFinite(b.amount)) {
+    // End of that day, but never later than now.
+    const asOf = new Date(Math.min(Date.now(), new Date(balanceDay.getFullYear(), balanceDay.getMonth(), balanceDay.getDate(), 23, 59, 59).getTime()));
+    balanceSaved = saveImportedBalance(credentialId, accountNumber, Math.round(b.amount * 100) / 100, asOf);
+  }
   finishImportedRows(touched);
 
-  return { added, updated, skipped };
+  return { added, updated, skipped, balanceSaved };
 }

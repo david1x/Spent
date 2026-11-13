@@ -615,10 +615,20 @@ export interface ImportRow {
   memo?: string;
 }
 
+/** The account balance a bank file shows after its latest row. */
+export interface ImportBalance {
+  /** Shekels. */
+  amount: number;
+  /** Local calendar day of that row, YYYY-MM-DD. */
+  date: string;
+}
+
 export interface ImportResult {
   added: number;
   updated: number;
   skipped: number;
+  /** True when the file's balance became the account's balance (it wasn't older than the one already known). */
+  balanceSaved?: boolean;
 }
 
 export interface OllamaModelInfo {

@@ -14,7 +14,7 @@ export async function POST(
     return NextResponse.json({ message: "Invalid connection id." }, { status: 400 });
   }
 
-  let body: { rows?: unknown };
+  let body: { rows?: unknown; balance?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -25,7 +25,7 @@ export async function POST(
   }
 
   try {
-    const result = importTransactions(workspaceId, credentialId, body.rows);
+    const result = importTransactions(workspaceId, credentialId, body.rows, body.balance);
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof ImportError) {

@@ -110,7 +110,7 @@ function ImportFlow({ credentialId, onClose }: { credentialId: number; onClose: 
     setImporting(true);
     setError(null);
     try {
-      const res = await importTransactionsFile(credentialId, preview.rows);
+      const res = await importTransactionsFile(credentialId, preview.rows, preview.balance);
       setResult({ ...res, skipped: res.skipped + preview.skipped });
       // Totals, lists, insights and bank health all read the new rows.
       void queryClient.invalidateQueries();
@@ -357,6 +357,14 @@ function MappingFields({
           onChange={(v) => set({ memo: v })}
         />
       </Field>
+      <Field label={t("balanceColumn")}>
+        <ColumnSelect
+          headers={headers}
+          value={mapping.balance}
+          optional
+          onChange={(v) => set({ balance: v })}
+        />
+      </Field>
 
       {showReversedToggle ? (
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3 sm:col-span-2">
@@ -505,6 +513,18 @@ function PreviewTable({ preview }: { preview: ReturnType<typeof applyMapping> })
           {t("previewOtherCurrency", { count: preview.otherCurrency })}
         </p>
       ) : null}
+      {preview.balance ? (
+        <p className="text-xs text-muted-foreground">
+          {t.rich("previewBalance", {
+            amount: () => (
+              <bdi dir="ltr" className="font-medium text-foreground tabular-nums">
+                {`${preview.balance!.amount < 0 ? "−" : ""}₪${Math.abs(preview.balance!.amount).toLocaleString(bcp, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              </bdi>
+            ),
+            date: day(preview.balance.date),
+          })}
+        </p>
+      ) : null}
       {preview.rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
           {t("previewEmpty")}
@@ -563,6 +583,7 @@ function DoneStep({ result, onClose }: { result: ImportResult; onClose: () => vo
         <ul className="space-y-1 text-sm text-muted-foreground">
           {result.updated > 0 ? <li>{t("doneExisting", { count: result.updated })}</li> : null}
           {result.skipped > 0 ? <li>{t("doneSkipped", { count: result.skipped })}</li> : null}
+          {result.balanceSaved ? <li>{t("doneBalance")}</li> : null}
           {result.added > 0 ? <li>{t("doneCategorizing")}</li> : null}
         </ul>
       </div>

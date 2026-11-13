@@ -17,6 +17,7 @@ import type {
   RoutedInCard,
   LoginCard,
   SpendingTrend,
+  ImportBalance,
   ImportRow,
   ImportResult,
   CategoryRequest,
@@ -689,11 +690,11 @@ export function listIntegrations() {
 }
 
 /** Rows from a bank's exported file, mapped client-side, saved under one login. */
-export function importTransactionsFile(credentialId: number, rows: ImportRow[]) {
+export function importTransactionsFile(credentialId: number, rows: ImportRow[], balance?: ImportBalance | null) {
   return fetchJSON<ImportResult>(`/api/integrations/${credentialId}/import`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({ rows, ...(balance ? { balance } : {}) }),
   });
 }
 

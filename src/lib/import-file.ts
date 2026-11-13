@@ -6,7 +6,7 @@
  */
 
 import { unzipSync, strFromU8 } from "fflate";
-import type { ImportRow } from "./types";
+import type { ImportBalance, ImportRow } from "./types";
 
 export type Cell = string | number | null;
 export type Table = Cell[][];
@@ -234,6 +234,8 @@ export interface ColumnMapping {
   currency: number | null;
   /** The description column stores Hebrew in visual (backwards) order, as One Zero's export does. */
   reversedHebrew: boolean;
+  /** The running balance after each row (יתרה), when the file has one. Never read as an amount. */
+  balance: number | null;
 }
 
 const HINTS: Record<"date" | "description" | "amount" | "debit" | "credit" | "memo", RegExp[]> = {
@@ -396,6 +398,7 @@ export function guessMapping(table: Table, fixedHeaderRow?: number): ColumnMappi
   const description = pick("description");
   const memo = pick("memo");
   const amountMode = debit != null && credit != null ? "split" : "single";
+  const balanceIdx = headers.findIndex((h, i) => !taken.has(i) && BALANCE.test(h));
 
   const mapping: ColumnMapping = {
     headerRow,
@@ -411,6 +414,7 @@ export function guessMapping(table: Table, fixedHeaderRow?: number): ColumnMappi
     signColumn,
     currency,
     reversedHebrew: description != null && looksReversed(body.map((r) => r[description] ?? null)),
+    balance: balanceIdx >= 0 ? balanceIdx : null,
   };
 
   mapping.dateOrder = guessDateOrder(body.map((r) => (date != null ? r[date] : null)));
@@ -513,12 +517,38 @@ export interface MappedPreview {
   skipped: number;
   /** Of the skipped rows, how many were in a currency other than shekels. */
   otherCurrency: number;
+  /** The account's balance after the file's latest row, when the file has a balance column. */
+  balance: ImportBalance | null;
+}
+
+type BalancedRow = { date: string; amount: number; balance: number };
+
+/**
+ * The balance after the file's latest row. Exports run oldest-first or
+ * newest-first, and rows on one day carry no time, so the order comes from
+ * the running balance itself: oldest-first, each balance is the one before
+ * plus this row's amount. The dates decide only when that doesn't tell.
+ */
+export function latestBalance(rows: BalancedRow[]): ImportBalance | null {
+  if (rows.length === 0) return null;
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  const close = (a: number, b: number) => Math.abs(a - b) < 0.005;
+  let forward = 0;
+  let backward = 0;
+  for (let i = 1; i < rows.length; i++) {
+    if (close(rows[i].balance - rows[i - 1].balance, rows[i].amount)) forward++;
+    if (close(rows[i - 1].balance - rows[i].balance, rows[i - 1].amount)) backward++;
+  }
+  const pick = forward > backward ? last : backward > forward ? first : last.date >= first.date ? last : first;
+  return { amount: pick.balance, date: pick.date };
 }
 
 export function applyMapping(table: Table, mapping: ColumnMapping): MappedPreview {
   const rows: ImportRow[] = [];
   let skipped = 0;
   let otherCurrency = 0;
+  const balanced: BalancedRow[] = [];
   for (const r of dataRows(table, mapping.headerRow)) {
     if (mapping.currency != null) {
       const code = text(r[mapping.currency] ?? null);
@@ -555,6 +585,8 @@ export function applyMapping(table: Table, mapping: ColumnMapping): MappedPrevie
     }
     const memo = mapping.memo != null ? text(r[mapping.memo] ?? null) : "";
     rows.push({ date, description, amount, ...(memo ? { memo } : {}) });
+    const balance = mapping.balance != null ? parseAmount(r[mapping.balance] ?? null) : null;
+    if (balance != null) balanced.push({ date, amount, balance });
   }
-  return { rows, skipped, otherCurrency };
+  return { rows, skipped, otherCurrency, balance: latestBalance(balanced) };
 }

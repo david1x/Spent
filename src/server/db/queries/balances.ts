@@ -40,6 +40,25 @@ export function saveAccountBalances(credentialId: number, accounts: ScrapedAccou
   })();
 }
 
+/**
+ * A balance read from an imported file, as of the file's latest row. Kept
+ * only when it isn't older than the one already known, so importing an old
+ * file never rolls back a synced balance. True when it was kept.
+ */
+export function saveImportedBalance(credentialId: number, accountNumber: string, balance: number, asOf: Date): boolean {
+  const at = asOf.toISOString().replace("T", " ").slice(0, 19);
+  const res = getDb()
+    .prepare(
+      `INSERT INTO account_balances (credential_id, account_number, balance, currency, savings, updated_at)
+       VALUES (?, ?, ?, 'ILS', 0, ?)
+       ON CONFLICT(credential_id, account_number) DO UPDATE SET
+         balance = excluded.balance, currency = excluded.currency, updated_at = excluded.updated_at
+       WHERE excluded.updated_at >= account_balances.updated_at`
+    )
+    .run(credentialId, accountNumber, balance, at);
+  return res.changes > 0;
+}
+
 /** The latest balance of every bank account in the workspace (and the selected accounts, if any). */
 export function listAccountBalances(workspaceId: number): AccountBalanceRow[] {
   const rows = getDb()
