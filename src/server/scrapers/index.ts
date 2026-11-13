@@ -127,7 +127,7 @@ function classifyError(error: unknown): {
 
   // Hapoalim's code step explains itself (./hapoalim.ts). Never retried: a
   // second attempt would sign in again and could use up a code try.
-  const hapoalim = /(Bank Hapoalim (asked|didn't accept|'s code has|locked)|Spent couldn't type the code).*/.exec(msg);
+  const hapoalim = /(Bank Hapoalim (asked|didn't accept|'s code has|'s code box|locked)|Spent couldn't type the code).*/.exec(msg);
   if (hapoalim) {
     return { retryable: false, friendly: hapoalim[0] };
   }

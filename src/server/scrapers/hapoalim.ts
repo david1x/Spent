@@ -61,6 +61,9 @@ export const CODE_REJECTED_MESSAGE =
 /** The page didn't take the digits. Nothing was sent, so no attempt was used up. */
 export const CODE_NOT_TYPED_MESSAGE =
   "Spent couldn't type the code into Bank Hapoalim's page, so it didn't send it and no attempt was used up. Please let the Spent maintainers know; the sync log has the details.";
+/** The popup closed or timed out while the user was getting the code. */
+export const CODE_BOX_GONE_MESSAGE =
+  "Bank Hapoalim's code box closed before the code arrived (it may have timed out). Nothing was sent, so no attempt was used up. Sync again and type the code as soon as the SMS arrives.";
 /** Hapoalim stopped taking codes for this login. Only the bank can release it. */
 export const CODE_LOCKED_MESSAGE =
   "Bank Hapoalim locked code entry after too many wrong codes. Unlock it on Hapoalim's website or app, then sync again.";
@@ -203,45 +206,57 @@ async function setBox(box: ElementHandle<Element>, value: string): Promise<void>
     .catch(() => undefined);
 }
 
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /**
- * Puts the code in the box(es) and checks it's all there. Keys first (what
- * a person does), then setting the value directly if the keys didn't take.
- * True only when the boxes hold exactly the code.
+ * Puts the code in the box(es) the way a person does: a mouse click on the
+ * box, then real key presses, letting the page move from box to box itself.
+ * Returns how it went in, or null when the boxes don't hold exactly the code.
+ *
+ * A row of digit boxes gets keys only. Setting the boxes' values directly
+ * can make them look right while the page's own form still holds something
+ * else, and sending that would waste one of the few tries Hapoalim allows.
+ * Better to send nothing. A single field can fall back to setting the value.
  */
-async function enterCode(target: CodeTarget, code: string): Promise<boolean> {
+async function enterCode(page: Page, target: CodeTarget, code: string): Promise<"keys" | "set" | null> {
   const { inputs } = target;
   const perBox = inputs.length > 1;
-  if (perBox && code.length !== inputs.length) return false;
+  if (perBox && code.length !== inputs.length) return null;
+  const isFocused = (box: ElementHandle<Element>) =>
+    box.evaluate((el) => el.ownerDocument.activeElement === el).catch(() => false);
 
   // Backspace only in a box that has something: in an empty digit box, many
   // widgets take it as "delete the previous digit".
   const clear = async (box: ElementHandle<Element>) => {
-    const filled = await box.evaluate((el) => {
-      const i = el as HTMLInputElement;
-      i.focus();
-      i.select();
-      return i.value.length > 0;
-    });
-    if (filled) await box.press("Backspace");
+    const filled = await box
+      .evaluate((el) => {
+        const i = el as HTMLInputElement;
+        i.select();
+        return i.value.length > 0;
+      })
+      .catch(() => false);
+    if (filled) await page.keyboard.press("Backspace");
   };
 
   if (perBox) {
     for (let i = 0; i < inputs.length; i++) {
+      if (!(await isFocused(inputs[i]))) await inputs[i].click().catch(() => undefined);
+      if (!(await isFocused(inputs[i]))) return null;
       await clear(inputs[i]);
-      await inputs[i].type(code[i], { delay: 60 });
+      await page.keyboard.type(code[i], { delay: 80 });
+      await pause(150);
     }
-  } else {
-    await clear(inputs[0]);
-    await inputs[0].type(code, { delay: 60 });
+    return (await boxDigits(inputs)) === code ? "keys" : null;
   }
-  if ((await boxDigits(inputs)) === code) return true;
 
-  if (perBox) {
-    for (let i = 0; i < inputs.length; i++) await setBox(inputs[i], code[i]);
-  } else {
-    await setBox(inputs[0], code);
+  await inputs[0].click({ count: 3 }).catch(() => undefined);
+  if (await isFocused(inputs[0])) {
+    await clear(inputs[0]);
+    await page.keyboard.type(code, { delay: 80 });
+    if ((await boxDigits(inputs)) === code) return "keys";
   }
-  return (await boxDigits(inputs)) === code;
+  await setBox(inputs[0], code);
+  return (await boxDigits(inputs)) === code ? "set" : null;
 }
 
 /** Ticks "remember this device" when the page offers it, so Hapoalim asks less often. */
@@ -418,7 +433,7 @@ export class SpentHapoalimScraper extends HapoalimScraper {
   private async codeStep(page: Page): Promise<void> {
     await settle(page);
     if (isSignedIn(page.url())) return;
-    const target = await findCodeInputs(page);
+    let target = await findCodeInputs(page);
     if (!target) {
       console.log(`[scraper] Hapoalim login stopped on a page Spent doesn't know: ${await describePage(page)}`);
       return;
@@ -430,8 +445,23 @@ export class SpentHapoalimScraper extends HapoalimScraper {
     }
     if (!this.askForCode) throw new Error(CODE_NEEDED_MESSAGE);
     console.log(`[scraper] Bank Hapoalim asked for a one-time code (${await describeBoxes(target.inputs)})`);
+    const askedAt = Date.now();
     const code = (await this.askForCode()).replace(/\D/g, "");
     this.onCodeSubmitted?.();
+    const waited = Math.round((Date.now() - askedAt) / 1000);
+
+    // Look for the boxes again: the page may have redrawn its popup while
+    // the user was reading the SMS, and the boxes found earlier would be gone.
+    if (await isLocked(page)) {
+      console.log(`[scraper] Hapoalim locked code entry while waiting for the code: ${await describePage(page)}`);
+      throw new Error(CODE_LOCKED_MESSAGE);
+    }
+    const found = await findCodeInputs(page);
+    if (!found) {
+      console.log(`[scraper] Hapoalim's code box was gone after ${waited}s: ${await describePage(page)}`);
+      throw new Error(CODE_BOX_GONE_MESSAGE);
+    }
+    target = found;
 
     if (target.inputs.length > 1 && code.length !== target.inputs.length) {
       throw new Error(
@@ -439,7 +469,7 @@ export class SpentHapoalimScraper extends HapoalimScraper {
       );
     }
     await rememberDevice(target.frame);
-    const entered = await enterCode(target, code);
+    const entered = await enterCode(page, target, code);
     // Only counts, never the code itself.
     const landed = (await boxDigits(target.inputs)).length;
     if (!entered) {
@@ -450,7 +480,9 @@ export class SpentHapoalimScraper extends HapoalimScraper {
     }
     const before = page.url();
     const pressed = await submitCode(target.inputs[target.inputs.length - 1]);
-    console.log(`[scraper] Hapoalim code: all ${code.length} digits in place, ${pressed}`);
+    console.log(
+      `[scraper] Hapoalim code: all ${code.length} digits in place (${entered === "keys" ? "typed" : "set directly"}, ${waited}s after asking), ${pressed}`
+    );
     await waitForCodeTaken(page, before, AFTER_CODE_MS);
     if (page.url() === before && (await isLocked(page))) {
       console.log(`[scraper] Hapoalim locked code entry after the code: ${await describePage(page)}`);
