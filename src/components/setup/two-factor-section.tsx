@@ -51,7 +51,8 @@ export function TwoFactorSection({
           {info.name} sometimes texts a one-time code when you sign in. Spent
           asks for it in the sync window and types it in for you, then
           remembers this device so it asks less often. If a scheduled sync
-          hits a code, press Sync and enter it.
+          hits a code, press Sync and enter it. With the browser shown, you
+          can also type it straight into the bank&apos;s window.
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">

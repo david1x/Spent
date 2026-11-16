@@ -46,9 +46,13 @@ const NEVER_TEXT = /שלח|קולי|חדש/;
 const REMEMBER_TEXT = /זכור|לזכור|מכשיר/;
 
 const REDIRECT_MS = 20_000;
+/** Visible browser: time the user gets for something in the window that isn't the code box (a captcha, say). */
+const WINDOW_GRACE_MS = 120_000;
 /** After the code: Hapoalim checks it, then loads the home page. A box still showing after this was turned down. */
 const AFTER_CODE_MS = 25_000;
 const URL_STABLE_MS = 2_000;
+/** Matches the dialog's own timeout (src/server/sync/otp-bridge.ts). */
+const OTP_WINDOW_MS = 5 * 60 * 1000;
 
 export const CODE_NEEDED_MESSAGE =
   "Bank Hapoalim asked for a one-time code, and nobody was there to type it. Press Sync at the top of the page and enter the code when Spent asks.";
@@ -133,6 +137,25 @@ async function describePopup(box: ElementHandle<Element>): Promise<string> {
 }
 
 const isSignedIn = (url: string) =>SIGNED_IN.some((re) => re.test(url));
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Visible browser: true once the user got past the code box in the window
+ * itself (signed in, or the box is gone and the page moved on). False when
+ * stopped or out of time.
+ */
+async function passedInWindow(page: Page, codeUrl: string, stopped: () => boolean, maxMs: number): Promise<boolean> {
+  const until = Date.now() + maxMs;
+  while (Date.now() < until) {
+    await sleep(1000);
+    if (stopped()) return false;
+    const url = page.url();
+    if (isSignedIn(url)) return true;
+    if (url !== codeUrl && !(await findCodeInputs(page).catch(() => null))) return true;
+  }
+  return false;
+}
 
 async function waitForUrlChange(page: Page, from: string, ms: number): Promise<void> {
   const until = Date.now() + ms;
@@ -425,7 +448,10 @@ export class SpentHapoalimScraper extends HapoalimScraper {
   /** Asks the user for the code; unset when nobody is watching (scheduled sync). */
   askForCode?: () => Promise<string>;
   onCodeSubmitted?: () => void;
-  /** A visible browser: the user types the code there, so don't ask for it. */
+  /**
+   * A visible browser: the code is still asked for in Spent, and typing it in
+   * the window works too, whichever comes first.
+   */
   visible = false;
   /** Hapoalim's own API said code entry is locked ("LOCKED OTP"). */
   private apiLocked = false;
@@ -486,12 +512,45 @@ export class SpentHapoalimScraper extends HapoalimScraper {
       postAction: async () => {
         const page = this.page;
         // Wait for the form to go away, unless it already has.
+        // Hapoalim's code box opens on top of the login form without leaving
+        // it, so a long wait here only delays the question (and used to time
+        // out into UNKNOWN_ERROR with a visible browser).
         if (page.url() === base.loginUrl) {
-          await waitForUrlChange(page, base.loginUrl, this.visible ? 120_000 : REDIRECT_MS);
+          await waitForUrlChange(page, base.loginUrl, REDIRECT_MS);
         }
-        if (!this.visible) await this.codeStep(page);
+        await this.codeStep(page);
       },
     };
+  }
+
+  /**
+   * The code from Spent's dialog, or null when the user typed it into the
+   * visible window first. Without a dialog (a scheduled sync) a visible
+   * window is the only way in, so it waits for that alone.
+   */
+  private async waitForCode(page: Page): Promise<string | null> {
+    const codeUrl = page.url();
+    let done = false;
+    const asked = this.askForCode?.();
+    // Rejected later when the sync ends (the dialog is cancelled); nobody needs that.
+    asked?.catch(() => undefined);
+    const inWindow = this.visible
+      ? passedInWindow(page, codeUrl, () => done, asked ? OTP_WINDOW_MS : WINDOW_GRACE_MS)
+      : null;
+    try {
+      if (!asked) {
+        if (await inWindow) return null;
+        throw new Error(CODE_NEEDED_MESSAGE);
+      }
+      if (!inWindow) return await asked;
+      return await Promise.race([
+        asked,
+        // A window that never got past the box leaves it to the dialog.
+        inWindow.then((ok) => (ok ? null : new Promise<never>(() => undefined))),
+      ]);
+    } finally {
+      done = true;
+    }
   }
 
   /**
@@ -503,6 +562,15 @@ export class SpentHapoalimScraper extends HapoalimScraper {
     await settle(page);
     if (isSignedIn(page.url())) return;
     let target = await findCodeInputs(page);
+    if (!target && this.visible) {
+      // Maybe something the user is handling in the window, like a captcha.
+      const until = Date.now() + WINDOW_GRACE_MS;
+      while (!target && Date.now() < until && !isSignedIn(page.url())) {
+        await sleep(1000);
+        target = await findCodeInputs(page).catch(() => null);
+      }
+      if (isSignedIn(page.url())) return;
+    }
     if (!target) {
       console.log(`[scraper] Hapoalim login stopped on a page Spent doesn't know: ${await describePage(page)}`);
       return;
@@ -512,12 +580,18 @@ export class SpentHapoalimScraper extends HapoalimScraper {
       console.log(`[scraper] Hapoalim has locked code entry: ${await describePage(page)}`);
       throw new Error(CODE_LOCKED_MESSAGE);
     }
-    if (!this.askForCode) throw new Error(CODE_NEEDED_MESSAGE);
+    if (!this.askForCode && !this.visible) throw new Error(CODE_NEEDED_MESSAGE);
     console.log(`[scraper] Bank Hapoalim asked for a one-time code (${await describeBoxes(target.inputs)})`);
     console.log(`[scraper] Hapoalim's code popup says: "${await describePopup(target.inputs[0])}"`);
     const askedAt = Date.now();
-    const code = (await this.askForCode()).replace(/\D/g, "");
+    const answer = await this.waitForCode(page);
     this.onCodeSubmitted?.();
+    if (answer === null) {
+      console.log(`[scraper] Hapoalim's code was entered in the browser window`);
+      await settle(page);
+      return;
+    }
+    const code = answer.replace(/\D/g, "");
     const waited = Math.round((Date.now() - askedAt) / 1000);
 
     // Look for the boxes again: the page may have redrawn its popup while
