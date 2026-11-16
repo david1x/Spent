@@ -1,0 +1,34 @@
+# Optional: a screen you can watch from your browser, so Spent can sync in a
+# visible window inside Docker. Use it to see a bank sign in, solve a captcha,
+# or type a code the bank asks for.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.screen.yml up -d --build
+#
+# Or add COMPOSE_FILE=docker-compose.yml:docker-compose.screen.yml to .env and
+# keep using plain `docker compose up -d`.
+#
+# Then open http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale and sign
+# in with SPENT_SCREEN_PASSWORD. Turn on "Show the browser when syncing this
+# account" for the accounts you want to watch.
+
+services:
+  spent:
+    environment:
+      # Spent opens a visible browser only when it has a display.
+      - DISPLAY=screen:0
+    depends_on:
+      - screen
+
+  screen:
+    build: ./docker/screen
+    image: spent-screen:latest
+    container_name: spent-screen
+    restart: unless-stopped
+    ports:
+      # Like Spent, only this machine by default. Reach it remotely through an
+      # SSH tunnel (ssh -L 6080:127.0.0.1:6080 you@server), or use "6080:6080"
+      # on a network you trust. SPENT_SCREEN_PORT changes the host port.
+      - "127.0.0.1:${SPENT_SCREEN_PORT:-6080}:6080"
+    environment:
+      - SCREEN_PASSWORD=${SPENT_SCREEN_PASSWORD:?Set SPENT_SCREEN_PASSWORD in .env}
+      - SCREEN_SIZE=${SPENT_SCREEN_SIZE:-1366x900}

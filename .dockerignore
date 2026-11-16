@@ -28,3 +28,4 @@ coverage
 Spent.sln
 Dockerfile
 docker-compose*.yml
+docker

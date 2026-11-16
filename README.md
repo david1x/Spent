@@ -293,7 +293,16 @@ docker compose up -d --build
 
 Open `http://127.0.0.1:4005`. The image bundles Chromium for the bank scrapers, and your data lives in the `spent-data` volume (`/data` in the container), so rebuilding or updating the image keeps it. Spent has no login screen, so the port only answers on the host by default. To reach it from other devices on a network you trust, change the port line in `docker-compose.yml` to `"4005:4005"`. `SPENT_PORT=4010 docker compose up -d` picks another host port.
 
-"Show browser during sync" needs a screen, so Docker runs the browser hidden instead. Bank Hapoalim and One Zero ask for their one-time code in the sync window, so they work in Docker too (Hapoalim also remembers the device, so it asks less often). For other banks that need a code, sync from a desktop install or turn 2FA off for them.
+A server has no screen, so by default Docker runs the bank browser hidden. Bank Hapoalim and One Zero ask for their one-time code in the sync window, so they work this way too (Hapoalim also remembers the device, so it asks less often).
+
+To watch a sync, solve a captcha, or type a code for any other bank, add the optional screen container. It gives Spent a virtual screen you open in your own browser:
+
+```bash
+echo "SPENT_SCREEN_PASSWORD=pick-one" >> .env      # 6 to 8 characters (VNC only reads 8)
+docker compose -f docker-compose.yml -f docker-compose.screen.yml up -d --build
+```
+
+Open `http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale`, enter the password, and turn on **Show the browser when syncing this account** for the accounts you want to see (or **Show browser during sync** in Settings for all of them). Like Spent, the screen only answers on the host; from another machine use an SSH tunnel (`ssh -L 6080:127.0.0.1:6080 you@server`). Add `COMPOSE_FILE=docker-compose.yml:docker-compose.screen.yml` to `.env` to keep it on with a plain `docker compose up -d`.
 
 ### Putting Spent on a domain
 
