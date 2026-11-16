@@ -302,7 +302,7 @@ echo "SPENT_SCREEN_PASSWORD=pick-one" >> .env      # 6 to 8 characters (VNC only
 docker compose -f docker-compose.yml -f docker-compose.screen.yml up -d --build
 ```
 
-Open `http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale`, enter the password, and turn on **Show the browser when syncing this account** for the accounts you want to see (or **Show browser during sync** in Settings for all of them). Like Spent, the screen only answers on the host; from another machine use an SSH tunnel (`ssh -L 6080:127.0.0.1:6080 you@server`). Add `COMPOSE_FILE=docker-compose.yml:docker-compose.screen.yml` to `.env` to keep it on with a plain `docker compose up -d`.
+Open `http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale`, enter the password, and turn on **Show the browser when syncing this account** for the accounts you want to see (or **Show browser during sync** in Settings for all of them). Like Spent, the screen only answers on the host; from another machine use an SSH tunnel (`ssh -L 6080:127.0.0.1:6080 you@server`). Add `COMPOSE_FILE=docker-compose.yml:docker-compose.screen.yml` to `.env` to keep it on with a plain `docker compose up -d`. Step-by-step guide and troubleshooting: [docs/docker-screen.md](docs/docker-screen.md).
 
 ### Putting Spent on a domain
 
