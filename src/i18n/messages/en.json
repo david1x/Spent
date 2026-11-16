@@ -732,7 +732,10 @@
       "pausedLink": "Follow the fix upstream",
       "pausedLabelOnly": "Only a label is needed. Credentials are optional while sync is paused.",
       "importSectionTitle": "Import from a file",
-      "importSectionBody": "Add transactions from a CSV or Excel file you exported from the bank. Rows already in Spent are recognized and skipped."
+      "importSectionBody": "Add transactions from a CSV or Excel file you exported from the bank. Rows already in Spent are recognized and skipped.",
+      "showBrowserTitle": "Browser window",
+      "showBrowserLabel": "Show the browser when syncing this account",
+      "showBrowserHint": "Runs this account's sync in a visible Chromium window instead of in the background, so you can watch it sign in or help with a captcha. Needs a screen: on a server without one the sync runs hidden. Also turns on detailed scraper logs in the terminal."
     },
     "ai": {
       "title": "AI & automation",

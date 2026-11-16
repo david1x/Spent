@@ -90,6 +90,7 @@ export function saveBankCredentials(
     label?: string;
     credentialId?: number;
     requiresManualTwoFactor?: boolean;
+    showBrowser?: boolean;
   }
 ) {
   return fetchJSON<{ success: boolean; credentialId: number }>("/api/setup/bank", {
@@ -105,13 +106,14 @@ export function saveBankCredentials(
       ...(options?.requiresManualTwoFactor !== undefined
         ? { requiresManualTwoFactor: options.requiresManualTwoFactor }
         : {}),
+      ...(options?.showBrowser !== undefined ? { showBrowser: options.showBrowser } : {}),
     }),
   });
 }
 
 export function updateIntegrationSettings(
   credentialId: number,
-  updates: { requiresManualTwoFactor?: boolean; resetTwoFactorToken?: boolean }
+  updates: { requiresManualTwoFactor?: boolean; showBrowser?: boolean; resetTwoFactorToken?: boolean }
 ) {
   return fetchJSON<{ success: boolean }>(`/api/integrations/${credentialId}`, {
     method: "PATCH",
@@ -773,6 +775,7 @@ export function getIntegrationCredentials(credentialId: number) {
     label: string | null;
     provider: string | null;
     requiresManualTwoFactor: boolean;
+    showBrowser: boolean;
     hasTwoFactorToken: boolean;
   }>(`/api/integrations/${credentialId}`);
 }

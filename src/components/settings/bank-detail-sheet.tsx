@@ -43,6 +43,7 @@ import {
   updateIntegrationSettings,
 } from "@/lib/api";
 import { TwoFactorSection } from "@/components/setup/two-factor-section";
+import { ShowBrowserSection } from "@/components/setup/show-browser-section";
 import { ImportFileDialog } from "@/components/settings/import-file-dialog";
 import { useTranslations } from "next-intl";
 import {
@@ -263,6 +264,7 @@ function CredentialsForm({
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [requiresManualTwoFactor, setRequiresManualTwoFactor] = useState(false);
+  const [showBrowser, setShowBrowser] = useState(false);
   const [hasTwoFactorToken, setHasTwoFactorToken] = useState(false);
   const [resetPending, setResetPending] = useState(false);
   const [result, setResult] = useState<{
@@ -284,6 +286,7 @@ function CredentialsForm({
         if (res.credentials) setCredentials(res.credentials);
         if (res.label) setLabel(res.label);
         setRequiresManualTwoFactor(res.requiresManualTwoFactor);
+        setShowBrowser(res.showBrowser);
         setHasTwoFactorToken(res.hasTwoFactorToken);
       } finally {
         if (!cancelled) setLoaded(true);
@@ -310,6 +313,7 @@ function CredentialsForm({
     label: label.trim(),
     ...(id != null ? { credentialId: id } : {}),
     requiresManualTwoFactor,
+    showBrowser,
   });
 
   const parseApiError = (err: unknown, fallback: string): string => {
@@ -473,6 +477,10 @@ function CredentialsForm({
         resetPending={resetPending}
         showResetButton={savedCredentialId != null}
       />
+      )}
+
+      {paused ? null : (
+        <ShowBrowserSection info={info} showBrowser={showBrowser} onChange={setShowBrowser} />
       )}
 
       {result && (

@@ -315,6 +315,8 @@ interface ScrapeBankOptions {
    * popup for just that one provider.
    */
   manualTwoFactor?: boolean;
+  /** The login's own "run in a visible browser" choice, on top of the workspace setting. */
+  showBrowser?: boolean;
   /** Which cards to read, for card companies that list them (Isracard). */
   cardScope?: CardScope;
   /**
@@ -359,7 +361,9 @@ export async function scrapeBank(
     getWorkspaceSetting(workspaceId, "scraper_show_browser") === "true";
   // Hapoalim's code is asked for in Spent, so its window isn't needed for it.
   const wantsBrowser =
-    (options.manualTwoFactor === true && !asksCodeInApp(provider)) || workspaceShowBrowser;
+    (options.manualTwoFactor === true && !asksCodeInApp(provider)) ||
+    options.showBrowser === true ||
+    workspaceShowBrowser;
   const showBrowser = wantsBrowser && canShowBrowser();
   if (wantsBrowser && !showBrowser) {
     console.log("[scraper] no screen here, so the browser runs hidden");

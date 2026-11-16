@@ -3,6 +3,7 @@ import "server-only";
 import {
   getBankCredentials,
   getRequiresManualTwoFactor,
+  getLoginShowBrowser,
   listBankCredentials,
   updateCredentialField,
   type BankCredentialMeta,
@@ -119,6 +120,7 @@ interface RunScrapeArgs {
   startDate: Date;
   syncRunId: number;
   manualTwoFactor: boolean;
+  showBrowser: boolean;
   send: SyncEventSender;
   cardScope?: CardScope;
 }
@@ -133,6 +135,7 @@ async function runScrapeForProvider(args: RunScrapeArgs): Promise<ScrapeResult> 
     startDate,
     syncRunId,
     manualTwoFactor,
+    showBrowser,
     send,
   } = args;
 
@@ -218,6 +221,7 @@ async function runScrapeForProvider(args: RunScrapeArgs): Promise<ScrapeResult> 
   const interactive = send !== NOOP_SEND;
   return scrapeBank(workspaceId, provider, credentials, startDate, {
     manualTwoFactor,
+    showBrowser,
     cardScope: args.cardScope,
     credentialId,
     askForCode: interactive
@@ -269,6 +273,7 @@ export async function checkLoginCards(credentialId: number): Promise<LoginCardRo
   try {
     const result = await scrapeBank(home.workspaceId, home.provider as BankProvider, credentials, new Date(), {
       manualTwoFactor: getRequiresManualTwoFactor(home.workspaceId, credentialId),
+      showBrowser: getLoginShowBrowser(home.workspaceId, credentialId),
       cardScope: { listOnly: true },
     });
     if (!result.success) throw new CardCheckError(result.errorMessage ?? "Couldn't read the card list.");
@@ -327,6 +332,7 @@ async function syncOneCredential(
       startDate,
       syncRunId,
       manualTwoFactor,
+      showBrowser: getLoginShowBrowser(workspaceId, meta.id),
       send,
       cardScope: cardScopeFor(meta, onlyCards),
     });

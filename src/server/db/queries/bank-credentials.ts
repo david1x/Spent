@@ -304,3 +304,30 @@ export function listBankCredentials(workspaceId: number): BankCredentialMeta[] {
   });
 }
 
+
+/** The login's own "run in a visible browser" choice. */
+export function getLoginShowBrowser(
+  workspaceId: number,
+  credentialId: number
+): boolean {
+  const row = getDb()
+    .prepare(
+      `SELECT show_browser FROM bank_credentials
+       WHERE workspace_id = ? AND id = ?`
+    )
+    .get(workspaceId, credentialId) as { show_browser: number } | undefined;
+  return Boolean(row?.show_browser);
+}
+
+export function setLoginShowBrowser(
+  workspaceId: number,
+  credentialId: number,
+  value: boolean
+): void {
+  getDb()
+    .prepare(
+      `UPDATE bank_credentials SET show_browser = ?, updated_at = datetime('now')
+       WHERE workspace_id = ? AND id = ?`
+    )
+    .run(value ? 1 : 0, workspaceId, credentialId);
+}

@@ -4,6 +4,7 @@ import {
   getBankCredentials,
   getBankCredentialMeta,
   saveBankCredentials,
+  setLoginShowBrowser,
 } from "@/server/db/queries/bank-credentials";
 import { BANK_PROVIDERS } from "@/lib/types";
 import { getWorkspaceIdFromRequest } from "@/server/lib/workspace-context";
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
     label?: string;
     credentialId?: number;
     requiresManualTwoFactor?: boolean;
+    showBrowser?: boolean;
   };
 
   if (!body.provider || !body.credentials) {
@@ -78,6 +80,9 @@ export async function POST(request: Request) {
       label,
       requiresManualTwoFactor: body.requiresManualTwoFactor,
     });
+    if (typeof body.showBrowser === "boolean") {
+      setLoginShowBrowser(workspaceId, id, body.showBrowser);
+    }
     return NextResponse.json({ success: true, credentialId: id });
   } catch (err) {
     const message =

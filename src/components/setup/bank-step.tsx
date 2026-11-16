@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import { ProviderBadge } from "./provider-badge";
 import { TwoFactorSection } from "./two-factor-section";
+import { ShowBrowserSection } from "./show-browser-section";
 import { useTranslations } from "next-intl";
 
 type Sub = "pick" | "form" | "ready";
@@ -480,6 +481,7 @@ function CredentialForm({
   );
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [requiresManualTwoFactor, setRequiresManualTwoFactor] = useState(false);
+  const [showBrowser, setShowBrowser] = useState(false);
   const [loaded, setLoaded] = useState(!isEdit);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -502,6 +504,7 @@ function CredentialForm({
         if (res.credentials) setCredentials(res.credentials);
         if (res.label) setLabel(res.label);
         setRequiresManualTwoFactor(res.requiresManualTwoFactor);
+        setShowBrowser(res.showBrowser);
       } finally {
         if (!cancelled) setLoaded(true);
       }
@@ -527,6 +530,7 @@ function CredentialForm({
     label: label.trim(),
     ...(id != null ? { credentialId: id } : {}),
     requiresManualTwoFactor,
+    showBrowser,
   });
 
   const handleTest = async () => {
@@ -696,6 +700,10 @@ function CredentialForm({
             onChangeManualFlag={setRequiresManualTwoFactor}
           />
       )}
+
+          {paused ? null : (
+            <ShowBrowserSection info={info} showBrowser={showBrowser} onChange={setShowBrowser} />
+          )}
 
           <AnimatePresence>
             {status === "testing-ok" && (

@@ -5,7 +5,9 @@ import {
   deleteBankCredentials,
   getBankCredentials,
   getBankCredentialMeta,
+  getLoginShowBrowser,
   getRequiresManualTwoFactor,
+  setLoginShowBrowser,
   setRequiresManualTwoFactor,
   updateCredentialField,
 } from "@/server/db/queries/bank-credentials";
@@ -35,6 +37,7 @@ export async function GET(
       label: null,
       provider: null,
       requiresManualTwoFactor: false,
+      showBrowser: false,
       hasTwoFactorToken: false,
     });
   }
@@ -46,6 +49,7 @@ export async function GET(
       label: meta.label,
       provider: meta.provider,
       requiresManualTwoFactor: false,
+      showBrowser: false,
       hasTwoFactorToken: false,
     });
   }
@@ -60,6 +64,7 @@ export async function GET(
       workspaceId,
       credentialId
     ),
+    showBrowser: getLoginShowBrowser(workspaceId, credentialId),
     hasTwoFactorToken: Boolean(otpLongTermToken),
   });
 }
@@ -81,6 +86,7 @@ export async function PATCH(
 
   let body: {
     requiresManualTwoFactor?: boolean;
+    showBrowser?: boolean;
     resetTwoFactorToken?: boolean;
   };
   try {
@@ -98,6 +104,9 @@ export async function PATCH(
       credentialId,
       body.requiresManualTwoFactor
     );
+  }
+  if (typeof body.showBrowser === "boolean") {
+    setLoginShowBrowser(workspaceId, credentialId, body.showBrowser);
   }
   if (body.resetTwoFactorToken === true) {
     updateCredentialField(

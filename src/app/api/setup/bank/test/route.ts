@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   getBankCredentials,
   getRequiresManualTwoFactor,
+  getLoginShowBrowser,
 } from "@/server/db/queries/bank-credentials";
 import { scrapeBank } from "@/server/scrapers";
 import { scrapeOneZeroWithToken } from "@/server/scrapers/one-zero";
@@ -33,6 +34,10 @@ export async function POST(request: Request) {
     body.credentialId != null
       ? getRequiresManualTwoFactor(workspaceId, body.credentialId)
       : false;
+  const showBrowser =
+    body.credentialId != null
+      ? getLoginShowBrowser(workspaceId, body.credentialId)
+      : false;
 
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -62,7 +67,7 @@ export async function POST(request: Request) {
         body.provider as BankProvider,
         credentials,
         sevenDaysAgo,
-        { manualTwoFactor }
+        { manualTwoFactor, showBrowser }
       );
 
   if (!result.success) {
